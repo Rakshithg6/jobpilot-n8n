@@ -12,7 +12,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const DIR = 'workflows';
-const TRIGGER_TYPES = /Trigger$|^n8n-nodes-base\.manualTrigger$|^n8n-nodes-base\.errorTrigger$|^n8n-nodes-base\.webhook$/;
+const TRIGGER_TYPES = /Trigger$|^n8n-nodes-base\.manualTrigger$|^n8n-nodes-base\.errorTrigger$|^n8n-nodes-base\.webhook$|^n8n-nodes-base\.emailReadImap$/;
 
 let errors = 0;
 let warnings = 0;

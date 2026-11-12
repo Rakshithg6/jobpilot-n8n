@@ -1,24 +1,31 @@
 # JobPilot
 
-**A self-hosted job-hunt pipeline: 4 job boards → normalise → fingerprint dedupe → deterministic score → daily digest → optional AI cover letter.**
+**A self-hosted job-hunt pipeline: public boards + Adzuna + your own job-alert emails → normalise → fingerprint dedupe → deterministic score → daily digest → optional AI cover letter.**
 
 Built with n8n Community Edition, PostgreSQL and Docker. No paid subscription, no scraping of sites that forbid it, no "AI magic" you can't explain.
 
 ```
  Remotive ──┐
 Arbeitnow ──┤
- RemoteOK ──┼─► normalise ─► fingerprint ─► INSERT … ON CONFLICT DO NOTHING
-   Jobicy ──┘        │                              │
-                    │                              ▼
-                    │                      jobs (Postgres)
-                    │                              │
-                    ├──────────────► score (0-100) ─┤  deterministic, explainable
-                    │                              ▼
-                    │                     daily digest (HTML in DB)
-                    │                              │
-                    │                    Telegram (optional)
-                    │                              │
-                    └──────────► cover letter (Groq, optional, grounded in facts only)
+ RemoteOK ──┼─┐
+   Jobicy ──┘ │
+   Adzuna ────┤  (free API key, country=in)
+ LinkedIn ─┐  │
+  Indeed ──┼──┤  (your own alert emails, IMAP)
+  Naukri ──┘  │
+             ▼
+        normalise ─► fingerprint ─► INSERT … ON CONFLICT DO NOTHING
+             │                              │
+             │                              ▼
+             │                      jobs (Postgres)
+             │                              │
+             ├──────────────► score (0-100) ─┤  deterministic, explainable
+             │                              ▼
+             │                     daily digest (HTML in DB)
+             │                              │
+             │                    Telegram (optional)
+             │                              │
+             └──────────► cover letter (Groq, optional, grounded in facts only)
 ```
 
 ---
@@ -44,7 +51,7 @@ JobPilot makes three things true:
 cp .env.example .env
 docker compose up -d
 
-# 2. import the five workflows
+# 2. import the seven workflows
 ./scripts/import-workflows.ps1
 
 # 3. open the editor
@@ -70,6 +77,28 @@ Optional integrations are env-gated — leave the keys blank and the matching br
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | 03 digest + 04 error alerts | free |
 | `GROQ_API_KEY` | 05 AI cover letter | free tier |
+| `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | 06 Adzuna search (India by default) | free |
+| IMAP credential (in n8n) | 07 job-alert emails from LinkedIn/Indeed/Naukri | free |
+
+---
+
+## Why not just scrape LinkedIn, Indeed and Naukri?
+
+Because you would be breaking their terms, and they are good at detecting it. Concretely, as of today:
+
+| Site | Public job-search API? | What actually works |
+| --- | --- | --- |
+| LinkedIn | **No.** The Job Posting API is partner-only (for employers/ATS). Scraping breaches the User Agreement. | Your own LinkedIn **job-alert emails** → workflow 07 |
+| Indeed | **No** self-serve search API. Publisher access is approval-only, affiliate feeds are restricted. | Your own Indeed **alert emails** → workflow 07 |
+| Naukri | **No** public API. Employer/partner integrations only. | Your own Naukri **alert emails** → workflow 07 |
+| Adzuna | **Yes**, free key, covers India (`country=in`) | workflow 06 |
+| Remotive / Arbeitnow / RemoteOK / Jobicy | **Yes**, open endpoints, no key | workflow 01 |
+
+The pattern is: **if you can legally get the data, automate it; if you can't, automate the part you legitimately own.** Your alert inbox is something you own. That's why 07 exists — it parses the emails those three sites already send you, so you still get LinkedIn/Indeed/Naukri coverage without a single forbidden request.
+
+Workflow 07 works on links, not on scraping: it extracts `linkedin.com/jobs/view/<id>`, `indeed.com/viewjob?jk=<id>` and `naukri.com/job-listings-…-<id>`, takes the title and company from the anchor text, and fingerprints on `source + job id`. Duplicate alerts collapse. There is no job description in an alert email, so those rows score on title alone — they are a safety net, not your primary feed.
+
+**One honest limitation:** because there is no description, a LinkedIn row maxes out lower than an Adzuna row with a full snippet. That's expected. If you want depth from those three sites, open the link — the pipeline's job is to make sure you see it.
 
 ---
 
@@ -106,7 +135,9 @@ Numbers from the first real run, not estimates:
 | Replayed the same ingest immediately | **457 → 457 rows, 0 duplicates** |
 | Scored | 457/457, average 34, **41 roles ≥ 70 (9%)** |
 | Double-encoded source text found and repaired | 3 rows, 0 remaining |
-| Workflow JSON imports | 5/5 clean, 0 structural errors |
+| Workflow JSON imports | 7/7 clean, 0 structural errors |
+| Alert-email parser (synthetic alerts) | 3/3 sources extracted correctly; duplicate link collapsed; unrelated email ignored |
+| Adzuna normaliser (documented response shape) | backend role scored 79, commission-only sales role scored 0 |
 
 That 9% is the point: the boards are ~90% noise, and the ranking is what turns them into ten applications a day.
 
@@ -148,6 +179,8 @@ workflows/
   03-daily-digest.json    top 10 → HTML → DB → Telegram (optional)
   04-error-handler.json   error trigger → incidents table → alert
   05-ai-cover-letter.json manual → grounded prompt → Groq → store
+  06-ingest-adzuna.json   Adzuna search (country=in), env-gated, no key = green skip
+  07-ingest-job-alerts.json IMAP trigger → LinkedIn/Indeed/Naukri alert emails
 scripts/
   start.ps1               cold boot + readiness wait
   import-workflows.ps1    import all JSON into the container
@@ -171,6 +204,7 @@ eval/
 ## Known limitations
 
 - Fingerprint dedupe catches re-posts and syndication, not near-duplicates with reworded titles. Embedding similarity is the next step.
+- Adzuna returns a description *snippet*, not the full advert, and alert-email rows carry no description at all — both rank on title plus whatever text exists.
 - Scoring is keyword-based. It cannot read "we'll teach you the stack" as a positive.
 - Single-user design: no per-user profiles, no multi-tenant isolation.
 - No auto-apply. Deliberate — auto-apply tools burn your reputation with recruiters.

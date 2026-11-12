@@ -38,6 +38,20 @@ Be honest with yourself about the goal: today you can ship a working, documented
 - [ ] Activate 01, 02, 03, and set 04 as the **Error Workflow** in each workflow's settings
 - [ ] Trigger a deliberate failure (point an HTTP node at a bad URL) → incident row + alert
 
+## Block 3.5 — India sources (optional, 25 min)
+
+Only if you want LinkedIn/Indeed/Naukri coverage.
+
+- [ ] Sign up at `developer.adzuna.com/signup` → copy `app_id` + `app_key`
+- [ ] Add `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `ADZUNA_COUNTRY=in`, `ADZUNA_QUERY=<your role>` to `.env`
+- [ ] `docker compose up -d --force-recreate n8n` → run **06 · Ingest Adzuna**
+- [ ] Gmail: enable 2FA → create an App Password → in n8n, Credentials → New → IMAP (`imap.gmail.com`, 993, SSL, your address + app password)
+- [ ] Open **07 · Ingest Job-Alert Emails** → select that credential
+- [ ] Make sure you actually receive alerts: LinkedIn "Job alert", Indeed "Email alerts", Naukri "Job alerts"
+- [ ] Send yourself/await one alert → run the workflow → check `SELECT source, count(*) FROM jobs GROUP BY source;`
+
+If that last query shows `linkedin` / `indeed` / `naukri` rows, you have the thing you originally asked for.
+
 ## Block 4 — evidence (60 min) ← the part people skip
 
 - [ ] `./scripts/export-scores.ps1`

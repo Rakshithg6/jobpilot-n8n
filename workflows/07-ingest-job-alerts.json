@@ -1,0 +1,146 @@
+{
+  "name": "07 · Ingest Job-Alert Emails (LinkedIn / Indeed / Naukri)",
+  "nodes": [
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "read",
+        "downloadAttachments": false,
+        "format": "simple",
+        "options": {
+          "customEmailConfig": "[\"UNSEEN\"]"
+        }
+      },
+      "id": "a0000007-0000-4000-8000-000000000001",
+      "name": "New job-alert email",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.2,
+      "position": [
+        -640,
+        0
+      ],
+      "credentials": {
+        "imap": {
+          "id": "jobpilot-imap",
+          "name": "JobPilot IMAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// LinkedIn / Indeed / Naukri do not offer a public job-search API, and scraping\n// them breaks their terms. What you ARE allowed to do is read the job-alert\n// emails they send you. This turns those emails into rows.\n//\n// Identity comes from the site + job id in the URL, which is stable across the\n// same alert arriving twice. Title/company are best-effort from the anchor text.\nconst SOURCES = [\n  {\n    source: 'linkedin',\n    url: /https?:\\/\\/[a-z.]*linkedin\\.com\\/(?:comm\\/)?jobs\\/view\\/(\\d{6,})[^\\s\"'<>)]*/gi,\n    id: /linkedin\\.com\\/(?:comm\\/)?jobs\\/view\\/(\\d{6,})/i,\n  },\n  {\n    source: 'indeed',\n    url: /https?:\\/\\/[a-z.]*indeed\\.[a-z.]+\\/(?:viewjob\\?jk=|rc\\/clk\\?[^\\s\"'<>)]*?jk=)([a-z0-9]{8,})[^\\s\"'<>)]*/gi,\n    id: /[?&]jk=([a-z0-9]{8,})/i,\n  },\n  {\n    source: 'naukri',\n    url: /https?:\\/\\/[a-z.]*naukri\\.com\\/job-listings-[^\\s\"'<>)]*?-(\\d{6,})[^\\s\"'<>)]*/gi,\n    id: /naukri\\.com\\/job-listings-[^\\s\"'<>)]*?-(\\d{6,})/i,\n  },\n];\n\nconst text = (v) => (v === null || v === undefined ? '' : String(v));\nconst clean = (s) => text(s).replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ')\n  .replace(/&#\\d+;/g, ' ').replace(/\\s+/g, ' ').trim();\n\nfunction fingerprint(seed) {\n  try {\n    const crypto = require('crypto');\n    return crypto.createHash('sha256').update(seed).digest('hex').slice(0, 32);\n  } catch (e) {\n    let h = 2166136261;\n    for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }\n    return 'fnv' + (h >>> 0).toString(16) + seed.length;\n  }\n}\n\n// Naukri URLs carry the title as a slug: /job-listings-software-engineer-bangalore-1234567\nfunction titleFromSlug(url) {\n  const m = url.match(/job-listings-([a-z0-9-]+?)-\\d{6,}/i);\n  if (!m) return '';\n  return m[1].split('-').filter((w) => w && !/^\\d+$/.test(w)).join(' ').replace(/\\b\\w/g, (c) => c.toUpperCase());\n}\n\n// In HTML the link text is usually \"Job title at Company\" or just the title.\nfunction anchorTextFor(html, url) {\n  const esc = url.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n  const re = new RegExp('<a[^>]+href=\"' + esc + '\"[^>]*>([\\\\s\\\\S]{0,300}?)</a>', 'i');\n  const m = html.match(re);\n  return m ? clean(m[1]) : '';\n}\n\nconst out = [];\nconst seen = new Set();\n\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  const subject = clean(j.subject || '');\n  const html = text(j.html || j.textHtml || j.text || j.textPlain);\n\n  // Optional noise filter: only parse things that look like a job alert.\n  if (subject && !/job|alert|career|opening|hiring|recommend|vacanc/i.test(subject)) continue;\n\n  for (const src of SOURCES) {\n    src.url.lastIndex = 0;\n    const links = html.match(src.url) || [];\n    for (const rawLink of links) {\n      const link = rawLink.replace(/[),.;]+$/, '');\n      const idm = link.match(src.id);\n      if (!idm || !idm[1]) continue;\n      const jobId = idm[1];\n      const key = src.source + ':' + jobId;\n      if (seen.has(key)) continue;\n      seen.add(key);\n\n      let anchor = anchorTextFor(html, link);\n      let title = anchor;\n      let company = '';\n      const at = anchor.split(/\\s+at\\s+/i);\n      if (at.length === 2) {\n        title = at[0].trim();\n        company = at[1].trim();\n      }\n      if (!title || title.length < 4) title = titleFromSlug(link);\n      if (!title) title = src.source + ' job ' + jobId;\n\n      out.push({\n        source: src.source,\n        external_id: key,\n        title: title.slice(0, 180),\n        company: (company || 'unknown').slice(0, 120),\n        location: '',\n        url: link,\n        description: '',\n        salary_text: '',\n        tags: [],\n        posted_at: j.date || null,\n        fingerprint: fingerprint(key),\n      });\n    }\n  }\n}\n\nif (!out.length) {\n  return [{ json: { empty: true, note: 'no LinkedIn/Indeed/Naukri job links found in these emails' } }];\n}\nreturn out.map((row) => ({ json: row }));\n"
+      },
+      "id": "a0000007-0000-4000-8000-000000000002",
+      "name": "Parse alert emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One INSERT per 75 rows, with ON CONFLICT DO NOTHING so re-running the\n// workflow is safe (idempotency lives in the database, not in the code).\nconst items = $input.all().map((i) => i.json).filter((r) => r && r.fingerprint);\nif (!items.length) return [{ json: { rows: 0, sql: 'SELECT 1;' } }];\n\nconst esc = (v) =>\n  v === null || v === undefined || v === ''\n    ? 'NULL'\n    : \"'\" + String(v).replace(/\\u0000/g, '').replace(/'/g, \"''\") + \"'\";\n\nconst jsonb = (v) =>\n  \"'\" + JSON.stringify(Array.isArray(v) ? v : []).replace(/'/g, \"''\") + \"'::jsonb\";\n\nconst stamp = (v) => {\n  if (!v) return 'NULL';\n  const d = new Date(v);\n  return isNaN(d.getTime()) ? 'NULL' : \"'\" + d.toISOString() + \"'::timestamptz\";\n};\n\nconst CHUNK = 75;\nconst chunks = [];\nfor (let i = 0; i < items.length; i += CHUNK) chunks.push(items.slice(i, i + CHUNK));\n\nreturn chunks.map((rows, idx) => ({\n  json: {\n    chunk: idx + 1,\n    rows: rows.length,\n    sql:\n      'INSERT INTO jobs (source, external_id, title, company, location, url, description, salary_text, tags, fingerprint, posted_at) VALUES ' +\n      rows\n        .map(\n          (r) =>\n            '(' +\n            [\n              esc(r.source),\n              esc(r.external_id),\n              esc(r.title),\n              esc(r.company),\n              esc(r.location),\n              esc(r.url),\n              esc(r.description),\n              esc(r.salary_text),\n              jsonb(r.tags),\n              esc(r.fingerprint),\n              stamp(r.posted_at),\n            ].join(',') +\n            ')'\n        )\n        .join(',') +\n      ' ON CONFLICT (fingerprint) DO NOTHING RETURNING id;',\n  },\n}));"
+      },
+      "id": "a0000007-0000-4000-8000-000000000003",
+      "name": "Build SQL chunks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -140,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "id": "a0000007-0000-4000-8000-000000000004",
+      "name": "Upsert jobs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        120,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "jobpilot-postgres",
+          "name": "JobPilot Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst fetched = $('Parse alert emails').all().filter((i) => i.json && i.json.fingerprint).length;\nconst offered = $('Build SQL chunks').all().reduce((n, i) => n + (i.json.rows || 0), 0);\nlet inserted = 0;\nfor (const i of $input.all()) {\n  const j = i.json || {};\n  if (Array.isArray(j)) inserted += j.length;\n  else if (Array.isArray(j.rows)) inserted += j.rows.length;\n  else if (j.id !== undefined) inserted += 1;\n}\nreturn [{ json: { source: 'email-alert', links_found: fetched, unique_in_batch: offered, new_rows: inserted, duplicates_skipped: Math.max(offered - inserted, 0) } }];\n"
+      },
+      "id": "a0000007-0000-4000-8000-000000000005",
+      "name": "Run summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "New job-alert email": {
+      "main": [
+        [
+          {
+            "node": "Parse alert emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse alert emails": {
+      "main": [
+        [
+          {
+            "node": "Build SQL chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build SQL chunks": {
+      "main": [
+        [
+          {
+            "node": "Upsert jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert jobs": {
+      "main": [
+        [
+          {
+            "node": "Run summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {},
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

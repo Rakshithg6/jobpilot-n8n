@@ -46,6 +46,12 @@ Short, specific answers. Every one of these is grounded in a real line of code i
 
 > I'd have started with the eval harness. I built the scoring first and tuned it by feel for a day; once I had labels, the weights changed in an hour. Test-first applies to ranking policies too.
 
-### 12. What did you actually learn?
+### 13. Why don't you just scrape LinkedIn?
+
+> Four reasons. It breaches their User Agreement, so the project would be something I couldn't show a hiring manager. It is an arms race I lose permanently — they rotate markup and ban accounts. It breaks the moment they ship a redesign, so it isn't engineering, it's maintenance. And it was unnecessary: they already email me job alerts. I parse my own inbox instead, which is lawful, stable, and covers Indeed and Naukri the same way. Where a real API exists — Adzuna, Remotive, Arbeitnow — I use the API.
+
+---
+
+### 14. What did you actually learn?
 
 > That the boring parts are the product: idempotency, failure isolation, and being able to explain a number. The AI part was twenty lines of prompt.
