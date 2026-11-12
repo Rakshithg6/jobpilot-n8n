@@ -1,0 +1,7 @@
+fingerprint,label,notes
+# Hand-label 15-30 real jobs here after your first ingest run.
+# label 1 = you would actually apply. 0 = noise / wrong seniority / wrong stack.
+# Replace these example rows with your own; the script only scores rows it can match.
+8b1d0f6a2c9e4a7f5d3b1c0e9f8a7b6c,1,example: backend role that matches the profile
+1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f,1,example: automation engineer
+9f8e7d6c5b4a39281706f5e4d3c2b1a0,0,example: sales role that should be filtered

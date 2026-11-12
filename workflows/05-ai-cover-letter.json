@@ -1,0 +1,148 @@
+{
+  "name": "05 · AI Cover Letter (optional)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a0000005-0000-4000-8000-000000000001",
+      "name": "Manual run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-620, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, title, company, location, description, score, matched_keywords\nFROM jobs\nWHERE score >= 70 AND cover_letter IS NULL\nORDER BY score DESC, first_seen DESC\nLIMIT 1;",
+        "options": {}
+      },
+      "id": "a0000005-0000-4000-8000-000000000002",
+      "name": "Pick best job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [-380, 0],
+      "credentials": {
+        "postgres": { "id": "jobpilot-postgres", "name": "JobPilot Postgres" }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// -----------------------------------------------------------------------\n// EDIT THIS: your real, factual background. The prompt is explicitly told\n// never to invent anything outside this block - that is the hallucination guard.\n// -----------------------------------------------------------------------\nconst FACTS = `\nName: Your Name\nRole: Backend / automation engineer, 2 years experience\nCurrently: builds internal tooling with Node.js, TypeScript, PostgreSQL, Docker\nShipped: an n8n pipeline that ingests ~1,200 job postings/month with dedupe and LLM scoring\nShipped: a REST API serving 50k requests/day on AWS ECS\nCertifications: AWS Cloud Practitioner\nStrongest skills: JavaScript, TypeScript, Python, SQL, Docker, API design, n8n\nLimitations: no Kubernetes in production, no formal ML training\n`.trim();\n\nconst job = $input.first().json;\nif (!job || job.id === undefined) {\n  return [{ json: { empty: true, note: 'No unscored job with score >= 70. Run 01 and 02 first, or lower the threshold.' } }];\n}\n\nconst jd = String(job.description || '').slice(0, 4000);\nconst keywords = (job.matched_keywords || []).slice(0, 8).join(', ');\n\nconst system =\n  'You write short, specific cover letters. Rules: (1) use ONLY facts from the CANDIDATE block, ' +\n  '(2) never invent employers, degrees, metrics or skills, (3) if the candidate lacks something the job asks for, do not claim it, ' +\n  '(4) 110-150 words, plain text, no markdown, no greeting placeholder other than \"Dear <Company> team\", ' +\n  '(5) mention at most 3 overlapping technologies, (6) end with one concrete sentence about what the candidate would do in week one.';\n\nconst user =\n  'CANDIDATE\\n' + FACTS + '\\n\\nJOB\\nTitle: ' + job.title + '\\nCompany: ' + job.company + '\\nLocation: ' + (job.location || 'n/a') +\n  '\\nOverlapping keywords detected: ' + (keywords || 'none') + '\\n\\nJOB DESCRIPTION\\n' + jd +\n  '\\n\\nWrite the cover letter now.';\n\nreturn [{ json: { job_id: Number(job.id), title: job.title, company: job.company, system, user, model: 'llama-3.3-70b-versatile', prompt_version: 'v1' } }];"
+      },
+      "id": "a0000005-0000-4000-8000-000000000003",
+      "name": "Build prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-120, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-groq",
+              "leftValue": "={{ $env.GROQ_API_KEY }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a0000005-0000-4000-8000-000000000004",
+      "name": "Groq key present?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [140, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.GROQ_API_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $('Build prompt').first().json.model, temperature: 0.4, max_tokens: 400, messages: [ { role: 'system', content: $('Build prompt').first().json.system }, { role: 'user', content: $('Build prompt').first().json.user } ] }) }}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "a0000005-0000-4000-8000-000000000005",
+      "name": "Generate (Groq)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [400, -100],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "jsCode": "const text =\n  ($input.first().json.choices && $input.first().json.choices[0] && $input.first().json.choices[0].message.content) || '';\nconst p = $('Build prompt').first().json;\nif (!text.trim()) return [{ json: { empty: true, note: 'Model returned nothing. Check the Groq response in the execution log.' } }];\n\nconst q = (v) => \"'\" + String(v).replace(/\\u0000/g, '').replace(/'/g, \"''\") + \"'\";\nreturn [\n  {\n    json: {\n      job_id: p.job_id,\n      company: p.company,\n      title: p.title,\n      letter: text.trim(),\n      save_sql:\n        \"UPDATE jobs SET cover_letter = \" + q(text.trim()) + \", status = 'shortlisted', updated_at = now() WHERE id = \" + p.job_id + ';',\n    },\n  },\n];"
+      },
+      "id": "a0000005-0000-4000-8000-000000000006",
+      "name": "Extract letter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, -100]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.save_sql }}",
+        "options": {}
+      },
+      "id": "a0000005-0000-4000-8000-000000000007",
+      "name": "Save letter",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [920, -100],
+      "credentials": {
+        "postgres": { "id": "jobpilot-postgres", "name": "JobPilot Postgres" }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      skipped: true,\n      reason: 'GROQ_API_KEY is empty, so the AI branch is bypassed on purpose.',\n      next: 'Add a free key to .env, restart with docker compose up -d, then run this workflow again.',\n    },\n  },\n];"
+      },
+      "id": "a0000005-0000-4000-8000-000000000008",
+      "name": "Explain skip",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 60]
+    }
+  ],
+  "connections": {
+    "Manual run": { "main": [[{ "node": "Pick best job", "type": "main", "index": 0 }]] },
+    "Pick best job": { "main": [[{ "node": "Build prompt", "type": "main", "index": 0 }]] },
+    "Build prompt": { "main": [[{ "node": "Groq key present?", "type": "main", "index": 0 }]] },
+    "Groq key present?": {
+      "main": [
+        [{ "node": "Generate (Groq)", "type": "main", "index": 0 }],
+        [{ "node": "Explain skip", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate (Groq)": { "main": [[{ "node": "Extract letter", "type": "main", "index": 0 }]] },
+    "Extract letter": { "main": [[{ "node": "Save letter", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "pinData": {},
+  "tags": [],
+  "meta": { "templateCredsSetupCompleted": false }
+}

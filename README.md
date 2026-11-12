@@ -1,0 +1,189 @@
+# JobPilot
+
+**A self-hosted job-hunt pipeline: 4 job boards → normalise → fingerprint dedupe → deterministic score → daily digest → optional AI cover letter.**
+
+Built with n8n Community Edition, PostgreSQL and Docker. No paid subscription, no scraping of sites that forbid it, no "AI magic" you can't explain.
+
+```
+ Remotive ──┐
+Arbeitnow ──┤
+ RemoteOK ──┼─► normalise ─► fingerprint ─► INSERT … ON CONFLICT DO NOTHING
+   Jobicy ──┘        │                              │
+                    │                              ▼
+                    │                      jobs (Postgres)
+                    │                              │
+                    ├──────────────► score (0-100) ─┤  deterministic, explainable
+                    │                              ▼
+                    │                     daily digest (HTML in DB)
+                    │                              │
+                    │                    Telegram (optional)
+                    │                              │
+                    └──────────► cover letter (Groq, optional, grounded in facts only)
+```
+
+---
+
+## The problem
+
+Job hunting is a relevance problem dressed up as a volume problem. Boards are noisy, the same role is syndicated three times, and the good listings are gone in 48 hours. Reading 200 listings a day to find 5 worth applying to does not scale, and neither does an LLM that says "great match!" about everything.
+
+JobPilot makes three things true:
+
+1. **No duplicates.** A role re-posted tomorrow, or listed on two boards, is one row. Dedupe is enforced by a unique constraint, not by hope.
+2. **Ranking you can audit.** Each score is a sum of named components with a stored reason list. You can argue with the policy; you cannot argue with a black box.
+3. **Nothing runs unattended into your inbox.** The pipeline stops at a reviewable digest.
+
+---
+
+> **First time here?** `docs/ONE_DAY_PLAN.md` is the hour-by-hour path from clone to demo video.
+
+## Quickstart (about 10 minutes)
+
+```powershell
+# 1. stack up (Postgres + n8n, schema auto-created)
+cp .env.example .env
+docker compose up -d
+
+# 2. import the five workflows
+./scripts/import-workflows.ps1
+
+# 3. open the editor
+start http://localhost:5678
+```
+
+Then, one time in the UI:
+
+- **Credentials → New → Postgres** (name it `JobPilot Postgres`):
+  `host=postgres  port=5432  database=n8n  user=n8n  password=<POSTGRES_PASSWORD>`
+- Run **01 · Ingest Jobs** → **02 · Score Jobs** manually once.
+- Toggle both workflows **Active**.
+
+Check the result:
+
+```powershell
+docker compose exec postgres psql -U n8n -d n8n -c "SELECT score, title, company FROM jobs ORDER BY score DESC LIMIT 10;"
+```
+
+Optional integrations are env-gated — leave the keys blank and the matching branch is skipped cleanly, not broken:
+
+| Variable | Unlocks | Cost |
+| --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | 03 digest + 04 error alerts | free |
+| `GROQ_API_KEY` | 05 AI cover letter | free tier |
+
+---
+
+## Design decisions (the interview material)
+
+**Dedupe by fingerprint, enforced in the database.**
+`fingerprint = sha256(company | title | location)` after lowercasing, stripping legal suffixes (`Inc`, `Pvt Ltd`, `GmbH`) and punctuation. The column is `UNIQUE`, and every insert is `ON CONFLICT (fingerprint) DO NOTHING`. Consequence: the ingest workflow is **idempotent** — running it twice, or twice at once, cannot create duplicates. Dedupe in application code would have been a race condition.
+
+**Sources fail independently.**
+Every HTTP node is `retryOnFail` with a bounded retry and `continueRegularOutput`. One board returning 500 produces a warning and zero items; the other two still land.
+
+**Ranking is deterministic, and the weights are visible.**
+40 points skills coverage, 15 bonus stack, 20 title match, 10 remote, 15 recency, −30 for explicit negatives (`commission only`, `10+ years`). Scores are clamped 0–100 and every row stores `score_reasons`, `matched_keywords` and `missing_keywords`. The last one is the useful one: it is a live **resume gap report** — the skills JDs keep asking for that your CV never mentions.
+
+**The LLM is fenced in.**
+Cover-letter generation is a separate, optional workflow. The prompt receives a fixed `FACTS` block and is instructed to use nothing else; the missing facts are stated as limitations so the model cannot "helpfully" invent a Kubernetes migration. Prompts are versioned in the row (`prompt_version`) so a quality change is attributable.
+
+**Cost is bounded.**
+Zero LLM calls in the ingest and scoring path. One call per approved application. Scoring 1,200 jobs/month costs nothing but HTTP requests.
+
+**Errors are a first-class path.**
+`04 · Error Handler` logs to an `incidents` table before alerting, so a failed Telegram call cannot lose the error.
+
+---
+
+## Verified on this machine
+
+Numbers from the first real run, not estimates:
+
+| Check | Result |
+| --- | --- |
+| Postings fetched from 4 boards | 457 (Arbeitnow 296, RemoteOK 98, Jobicy 50, Remotive 13) |
+| SQL statements generated | 7, 1.7 MB total, inserted in one pass |
+| Replayed the same ingest immediately | **457 → 457 rows, 0 duplicates** |
+| Scored | 457/457, average 34, **41 roles ≥ 70 (9%)** |
+| Double-encoded source text found and repaired | 3 rows, 0 remaining |
+| Workflow JSON imports | 5/5 clean, 0 structural errors |
+
+That 9% is the point: the boards are ~90% noise, and the ranking is what turns them into ten applications a day.
+
+---
+
+## Evaluation
+
+"AI ranks my jobs" is a claim until you measure it. So:
+
+```powershell
+./scripts/export-scores.ps1        # current ranking -> eval/scores.csv
+# hand-label 20 jobs in eval/labels.csv (1 = you'd apply)
+node eval/evaluate.mjs
+```
+
+Output is precision@5/10/20 and a threshold sweep. Format:
+
+```
+Labeled jobs in ranking: 20   relevant: 9
+
+k    precision@k   recall@k
+5    4/5 = 0.80    0.44
+10   7/10 = 0.70   0.78
+20   9/20 = 0.45   1.00
+```
+
+Tune the weights until precision@10 is defensible, then put the number in this README. Being able to say *"precision@10 was 0.70 on 20 hand-labeled jobs, and I know why the false positives slipped through"* is worth more than any feature list.
+
+---
+
+## Repo layout
+
+```
+docker-compose.yml        n8n + Postgres, healthchecked, env-gated integrations
+db/init.sql               schema, indexes, funnel view, constraints
+workflows/
+  01-ingest-jobs.json     schedule → 4 boards → normalise → dedupe → upsert
+  02-score-jobs.json      unscored queue → deterministic score → gap report
+  03-daily-digest.json    top 10 → HTML → DB → Telegram (optional)
+  04-error-handler.json   error trigger → incidents table → alert
+  05-ai-cover-letter.json manual → grounded prompt → Groq → store
+scripts/
+  start.ps1               cold boot + readiness wait
+  import-workflows.ps1    import all JSON into the container
+  export-scores.ps1       ranking export for evaluation
+  reset.ps1               wipe volumes and start clean before a demo
+  validate-workflows.mjs  structural lint, fails CI on broken connections
+eval/
+  labels.csv              your hand labels
+  evaluate.mjs            precision@k, recall@k, threshold sweep
+```
+
+---
+
+## Security and privacy
+
+- Credentials live only in n8n's encrypted store; the database password is in `.env`, which is gitignored.
+- No resume PDF is uploaded anywhere. The `FACTS` block is the only personal context sent to a model, and it is yours to edit.
+- Only official APIs and public job-board feeds are used. Nothing here scrapes a site whose Terms of Service forbid it — that matters, because the alternative is an account ban and a story you can't tell an interviewer.
+- Execution data is local. `N8N_DIAGNOSTICS_ENABLED=false`.
+
+## Known limitations
+
+- Fingerprint dedupe catches re-posts and syndication, not near-duplicates with reworded titles. Embedding similarity is the next step.
+- Scoring is keyword-based. It cannot read "we'll teach you the stack" as a positive.
+- Single-user design: no per-user profiles, no multi-tenant isolation.
+- No auto-apply. Deliberate — auto-apply tools burn your reputation with recruiters.
+
+## Roadmap
+
+1. Embedding-based near-duplicate collapse.
+2. Gmail trigger: classify replies (rejection / screen / interview) and auto-advance `status`.
+3. Follow-up scheduler: `applications.follow_up_on` drives a D+5 / D+10 reminder.
+4. Per-source yield metrics — which board actually produces interviews.
+
+---
+
+## What this demonstrates
+
+Dockerised local infrastructure · workflow orchestration · idempotent data ingestion · schema and index design · explainable ranking · LLM grounding and prompt versioning · failure isolation · encoding repair on dirty third-party feeds · evaluation harness · env-gated optional integrations · documentation.

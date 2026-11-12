@@ -1,0 +1,106 @@
+{
+  "name": "04 · Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a0000004-0000-4000-8000-000000000001",
+      "name": "On workflow error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [-620, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Error Trigger payload shape has changed across versions - read defensively.\nconst e = $input.first().json || {};\nconst wf = e.workflow || {};\nconst ex = e.execution || {};\nconst err = ex.error || e.error || {};\n\nconst message = [err.message || err.description || 'unknown error']\n  .join(' ')\n  .replace(/\\s+/g, ' ')\n  .slice(0, 500);\n\nconst q = (v) => \"'\" + String(v === undefined || v === null ? '' : v).replace(/\\u0000/g, '').replace(/'/g, \"''\") + \"'\";\n\nreturn [\n  {\n    json: {\n      workflow: wf.name || 'unknown',\n      execution_url: ex.url || '',\n      message,\n      alert_text:\n        'JobPilot failure\\n\\nWorkflow: ' +\n        (wf.name || 'unknown') +\n        '\\nError: ' +\n        message +\n        (ex.url ? '\\nExecution: ' + ex.url : ''),\n      log_sql:\n        'INSERT INTO incidents (workflow, message, execution_url) VALUES (' +\n        q(wf.name) + ',' + q(message) + ',' + q(ex.url) + ');',\n    },\n  },\n];"
+      },
+      "id": "a0000004-0000-4000-8000-000000000002",
+      "name": "Format alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-380, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.log_sql }}",
+        "options": {}
+      },
+      "id": "a0000004-0000-4000-8000-000000000003",
+      "name": "Log incident",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [-120, 0],
+      "credentials": {
+        "postgres": { "id": "jobpilot-postgres", "name": "JobPilot Postgres" }
+      },
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-telegram",
+              "leftValue": "={{ $env.TELEGRAM_CHAT_ID }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a0000004-0000-4000-8000-000000000004",
+      "name": "Telegram configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [140, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: $('Format alert').first().json.alert_text.slice(0, 3500) }) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "a0000004-0000-4000-8000-000000000005",
+      "name": "Alert me",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [400, -100],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    }
+  ],
+  "connections": {
+    "On workflow error": { "main": [[{ "node": "Format alert", "type": "main", "index": 0 }]] },
+    "Format alert": { "main": [[{ "node": "Log incident", "type": "main", "index": 0 }]] },
+    "Log incident": { "main": [[{ "node": "Telegram configured?", "type": "main", "index": 0 }]] },
+    "Telegram configured?": {
+      "main": [
+        [{ "node": "Alert me", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "pinData": {},
+  "tags": [],
+  "meta": { "templateCredsSetupCompleted": false }
+}

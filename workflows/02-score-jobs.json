@@ -1,0 +1,93 @@
+{
+  "name": "02 · Score Jobs",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "hours", "hoursInterval": 6 }
+          ]
+        }
+      },
+      "id": "a0000002-0000-4000-8000-000000000001",
+      "name": "Every 6 hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-620, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, title, company, location, description, source, posted_at\nFROM jobs\nWHERE score IS NULL\nORDER BY first_seen DESC\nLIMIT 150;",
+        "options": {}
+      },
+      "id": "a0000002-0000-4000-8000-000000000002",
+      "name": "Unscored jobs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [-380, 0],
+      "credentials": {
+        "postgres": { "id": "jobpilot-postgres", "name": "JobPilot Postgres" }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// -----------------------------------------------------------------------\n// EDIT THIS BLOCK: it is the whole ranking policy for the project.\n// Deterministic on purpose - you can explain and test every point.\n// -----------------------------------------------------------------------\nconst PROFILE = {\n  titles: ['engineer', 'developer', 'analyst', 'automation', 'backend', 'full stack', 'fullstack', 'platform', 'data', 'sre', 'devops', 'qa'],\n  mustHave: ['javascript', 'typescript', 'python', 'sql', 'api', 'docker'],\n  niceToHave: ['aws', 'gcp', 'azure', 'kubernetes', 'postgres', 'redis', 'n8n', 'airflow', 'llm', 'terraform', 'graphql', 'ci/cd'],\n  negative: ['commission only', 'commission-based', 'unpaid', '10+ years', '12+ years', '15+ years', 'sales executive', 'sales manager', 'district manager'],\n};\n\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.id !== undefined && r.title);\nif (!rows.length) {\n  return [{ json: { empty: true, note: 'nothing left to score' } }];\n}\n\nconst hits = (haystack, needles) => needles.filter((n) => haystack.includes(n));\n\nconst scored = rows.map((r) => {\n  const title = String(r.title || '').toLowerCase();\n  const body = (title + ' ' + String(r.description || '')).toLowerCase();\n  const location = String(r.location || '').toLowerCase();\n\n  const must = hits(body, PROFILE.mustHave);\n  const nice = hits(body, PROFILE.niceToHave);\n  const titleHit = PROFILE.titles.filter((t) => title.includes(t));\n  const negatives = hits(body, PROFILE.negative);\n  const remote = /remote|anywhere|worldwide/.test(location) || /fully remote|remote-first/.test(body);\n\n  const skillScore = Math.min(must.length / 3, 1) * 40;\n  const niceScore = Math.min(nice.length / 4, 1) * 15;\n  const titleScore = titleHit.length ? 20 : 0;\n  const remoteScore = remote ? 10 : 0;\n\n  let recencyScore = 0;\n  if (r.posted_at) {\n    const days = (Date.now() - new Date(r.posted_at).getTime()) / 86400000;\n    if (!isNaN(days)) recencyScore = days <= 7 ? 15 : days <= 14 ? 10 : days <= 30 ? 5 : 0;\n  }\n\n  let score = skillScore + niceScore + titleScore + remoteScore + recencyScore;\n  const reasons = [\n    'skills ' + Math.round(skillScore) + '/40 (' + (must.join(', ') || 'none') + ')',\n    'bonus ' + Math.round(niceScore) + '/15 (' + (nice.slice(0, 5).join(', ') || 'none') + ')',\n    'title ' + titleScore + '/20',\n    'remote ' + remoteScore + '/10',\n    'recency ' + recencyScore + '/15',\n  ];\n\n  if (negatives.length) {\n    score -= 30;\n    reasons.push('penalty -30 (' + negatives.join(', ') + ')');\n  }\n\n  return {\n    id: Number(r.id),\n    score: Math.max(0, Math.min(100, Math.round(score))),\n    reasons,\n    matched: must.concat(nice).slice(0, 15),\n    // Skills the JD asks for that you have not listed - your resume gap report.\n    missing: PROFILE.mustHave.filter((k) => !must.includes(k)),\n  };\n});\n\nreturn scored.map((s) => ({ json: s }));"
+      },
+      "id": "a0000002-0000-4000-8000-000000000003",
+      "name": "Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-120, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Single UPDATE ... FROM (VALUES ...) instead of N round trips.\nconst rows = $input.all().map((i) => i.json).filter((r) => r && r.id !== undefined && r.score !== undefined);\nif (!rows.length) return [{ json: { rows: 0, sql: 'SELECT 1;' } }];\n\nconst q = (v) => \"'\" + String(v).replace(/\\u0000/g, '').replace(/'/g, \"''\") + \"'\";\nconst arr = (v) => q(JSON.stringify(v || [])) + '::jsonb';\n\nconst CHUNK = 100;\nconst chunks = [];\nfor (let i = 0; i < rows.length; i += CHUNK) chunks.push(rows.slice(i, i + CHUNK));\n\nreturn chunks.map((chunk) => ({\n  json: {\n    rows: chunk.length,\n    sql:\n      'UPDATE jobs AS j SET score = v.score::int, score_reasons = v.reasons::jsonb, ' +\n      'matched_keywords = v.matched::jsonb, missing_keywords = v.missing::jsonb, updated_at = now() ' +\n      'FROM (VALUES ' +\n      chunk\n        .map((r) => '(' + [r.id, Math.round(r.score), arr(r.reasons), arr(r.matched), arr(r.missing)].join(',') + ')')\n        .join(',') +\n      ') AS v(id, score, reasons, matched, missing) WHERE j.id = v.id::bigint;',\n  },\n}));"
+      },
+      "id": "a0000002-0000-4000-8000-000000000004",
+      "name": "Build UPDATE",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [140, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "id": "a0000002-0000-4000-8000-000000000005",
+      "name": "Apply scores",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [400, 0],
+      "credentials": {
+        "postgres": { "id": "jobpilot-postgres", "name": "JobPilot Postgres" }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const scored = $('Score').all().map((i) => i.json).filter((r) => r && r.score !== undefined);\nif (!scored.length) {\n  return [{ json: { scored: 0, note: 'queue was empty' } }];\n}\n\nconst avg = Math.round(scored.reduce((n, r) => n + r.score, 0) / scored.length);\nconst strong = scored.filter((r) => r.score >= 70).length;\nconst gaps = {};\nfor (const r of scored) for (const k of r.missing || []) gaps[k] = (gaps[k] || 0) + 1;\n\nreturn [\n  {\n    json: {\n      scored: scored.length,\n      average_score: avg,\n      shortlisted: strong,\n      top_missing_skills: Object.entries(gaps).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => k + ':' + v),\n    },\n  },\n];"
+      },
+      "id": "a0000002-0000-4000-8000-000000000006",
+      "name": "Scoring summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    }
+  ],
+  "connections": {
+    "Every 6 hours": { "main": [[{ "node": "Unscored jobs", "type": "main", "index": 0 }]] },
+    "Unscored jobs": { "main": [[{ "node": "Score", "type": "main", "index": 0 }]] },
+    "Score": { "main": [[{ "node": "Build UPDATE", "type": "main", "index": 0 }]] },
+    "Build UPDATE": { "main": [[{ "node": "Apply scores", "type": "main", "index": 0 }]] },
+    "Apply scores": { "main": [[{ "node": "Scoring summary", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false,
+  "pinData": {},
+  "tags": [],
+  "meta": { "templateCredsSetupCompleted": false }
+}
