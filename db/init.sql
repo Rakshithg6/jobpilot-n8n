@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   title           TEXT        NOT NULL,
   company         TEXT        NOT NULL,
   location        TEXT,
+  -- coarse region tag: 'de', 'gb', 'nl', 'us', 'in', 'remote', ...
+  -- derived from the location text so you can filter "show me Germany" in one WHERE.
+  country         TEXT,
   url             TEXT,
   description     TEXT,
   salary_text     TEXT,
@@ -30,6 +33,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 
 CREATE INDEX IF NOT EXISTS jobs_rank_idx     ON jobs (score DESC NULLS LAST, first_seen DESC);
+CREATE INDEX IF NOT EXISTS jobs_country_idx  ON jobs (country) WHERE country IS NOT NULL;
 CREATE INDEX IF NOT EXISTS jobs_unscored_idx ON jobs (first_seen DESC) WHERE score IS NULL;
 CREATE INDEX IF NOT EXISTS jobs_status_idx   ON jobs (status);
 CREATE INDEX IF NOT EXISTS jobs_title_trgm   ON jobs USING gin (to_tsvector('english', title || ' ' || company));

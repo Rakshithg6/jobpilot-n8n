@@ -1,6 +1,6 @@
 # JobPilot
 
-**A self-hosted job-hunt pipeline: public boards + Adzuna + your own job-alert emails → normalise → fingerprint dedupe → deterministic score → daily digest → optional AI cover letter.**
+**A self-hosted job-hunt pipeline: European + global boards, Adzuna, and your own job-alert emails → normalise → fingerprint dedupe → deterministic score → daily digest → optional AI cover letter.**
 
 Built with n8n Community Edition, PostgreSQL and Docker. No paid subscription, no scraping of sites that forbid it, no "AI magic" you can't explain.
 
@@ -77,7 +77,7 @@ Optional integrations are env-gated — leave the keys blank and the matching br
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | 03 digest + 04 error alerts | free |
 | `GROQ_API_KEY` | 05 AI cover letter | free tier |
-| `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | 06 Adzuna search (India by default) | free |
+| `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | 06 Adzuna search — 9 European countries by default (`de,at,ch,nl,fr,gb,pl,es,it`); `ADZUNA_COUNTRIES` / `ADZUNA_QUERIES` control the rest | free |
 | IMAP credential (in n8n) | 07 job-alert emails from LinkedIn/Indeed/Naukri | free |
 
 ---
@@ -91,7 +91,7 @@ Because you would be breaking their terms, and they are good at detecting it. Co
 | LinkedIn | **No.** The Job Posting API is partner-only (for employers/ATS). Scraping breaches the User Agreement. | Your own LinkedIn **job-alert emails** → workflow 07 |
 | Indeed | **No** self-serve search API. Publisher access is approval-only, affiliate feeds are restricted. | Your own Indeed **alert emails** → workflow 07 |
 | Naukri | **No** public API. Employer/partner integrations only. | Your own Naukri **alert emails** → workflow 07 |
-| Adzuna | **Yes**, free key, covers India (`country=in`) | workflow 06 |
+| Adzuna | **Yes**, free key, 19 countries incl. `de`, `gb`, `nl`, `fr` | workflow 06 |
 | Remotive / Arbeitnow / RemoteOK / Jobicy | **Yes**, open endpoints, no key | workflow 01 |
 
 The pattern is: **if you can legally get the data, automate it; if you can't, automate the part you legitimately own.** Your alert inbox is something you own. That's why 07 exists — it parses the emails those three sites already send you, so you still get LinkedIn/Indeed/Naukri coverage without a single forbidden request.
@@ -99,6 +99,65 @@ The pattern is: **if you can legally get the data, automate it; if you can't, au
 Workflow 07 works on links, not on scraping: it extracts `linkedin.com/jobs/view/<id>`, `indeed.com/viewjob?jk=<id>` and `naukri.com/job-listings-…-<id>`, takes the title and company from the anchor text, and fingerprints on `source + job id`. Duplicate alerts collapse. There is no job description in an alert email, so those rows score on title alone — they are a safety net, not your primary feed.
 
 **One honest limitation:** because there is no description, a LinkedIn row maxes out lower than an Adzuna row with a full snippet. That's expected. If you want depth from those three sites, open the link — the pipeline's job is to make sure you see it.
+
+---
+
+## Region coverage: Europe, Germany, remote, India
+
+Every row gets a `country` tag derived from its location text (`Berlin, Germany` → `de`, `London, UK` → `gb`, `Remote` → `remote`). That means "show me only German roles" is one `WHERE`, not a manual scan.
+
+Live sample from the four open boards, checked on 2026-11-13:
+
+| Region tag | Rows |
+| --- | --- |
+| `remote` | 90 |
+| unmatched (unclear location) | 89 |
+| `de` | 81 |
+| `fr` | 46 |
+| `nl` | 42 |
+| `gb` | 39 |
+| `us` | 26 |
+| `ch` | 24 |
+| `ca` | 17 |
+| **Europe total** | **235 of 461** |
+
+Adzuna adds depth on top of that, because it is the only source here that can be pointed at a named country:
+
+```powershell
+# .env
+ADZUNA_COUNTRIES=de,at,ch,nl,fr,gb,pl,es,it
+ADZUNA_QUERIES=software engineer
+ADZUNA_MAX_REQUESTS=12
+```
+
+`06` builds one request per country × term, applies `category=it-jobs`, and caps the total at `ADZUNA_MAX_REQUESTS` so the free quota survives. Two runs a day × 9 countries ≈ 540 calls/month.
+
+Useful queries once the data is in:
+
+```sql
+-- Germany, shortlisted only
+SELECT score, title, company, location, url
+FROM jobs
+WHERE country = 'de' AND score >= 70
+ORDER BY score DESC LIMIT 20;
+
+-- Europe-wide, grouped by how much is shortlisted per country
+SELECT country, count(*) AS jobs, count(*) FILTER (WHERE score >= 70) AS shortlisted
+FROM jobs
+WHERE country IN ('de','at','ch','nl','fr','es','it','pl','ie','gb','se','dk','no','fi','pt','cz','ro')
+GROUP BY 1 ORDER BY 3 DESC, 2 DESC;
+
+-- AI / SDE-flavoured roles anywhere in Europe
+SELECT country, score, title, company, url
+FROM jobs
+WHERE score >= 70
+  AND country NOT IN ('in')
+  AND (title ILIKE '%ai%' OR title ILIKE '%machine learning%'
+       OR title ILIKE '%sde%' OR title ILIKE '%software engineer%')
+ORDER BY score DESC LIMIT 25;
+```
+
+**The part no pipeline can fix:** most EU roles require existing work authorization. The pipeline gets you the shortlist; whether a company sponsors a visa is a per-application question, and you should filter aggressively rather than apply blindly. Look for "visa sponsorship", "relocation support", or an EU entity in the posting.
 
 ---
 
@@ -137,6 +196,8 @@ Numbers from the first real run, not estimates:
 | Double-encoded source text found and repaired | 3 rows, 0 remaining |
 | Workflow JSON imports | 7/7 clean, 0 structural errors |
 | Alert-email parser (synthetic alerts) | 3/3 sources extracted correctly; duplicate link collapsed; unrelated email ignored |
+| Region tagging (live sample, 2026-11-13) | 235/461 rows tagged Europe (de 81, fr 46, nl 42, gb 39, ch 24); 158 software/AI/SDE titles |
+| Adzuna multi-country builder | 9 countries × 2 terms capped to 6 requests; failed country skipped, `category=it-jobs` applied |
 | Adzuna normaliser (documented response shape) | backend role scored 79, commission-only sales role scored 0 |
 
 That 9% is the point: the boards are ~90% noise, and the ranking is what turns them into ten applications a day.

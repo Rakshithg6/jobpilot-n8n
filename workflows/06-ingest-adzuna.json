@@ -1,5 +1,5 @@
 {
-  "name": "06 · Ingest Adzuna (India + search terms)",
+  "name": "06 · Ingest Adzuna (Europe + India search terms)",
   "nodes": [
     {
       "parameters": {
@@ -7,17 +7,17 @@
           "interval": [
             {
               "field": "hours",
-              "hoursInterval": 6
+              "hoursInterval": 12
             }
           ]
         }
       },
       "id": "a0000006-0000-4000-8000-000000000001",
-      "name": "Every 6 hours",
+      "name": "Every 12 hours",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        -640,
+        -660,
         0
       ]
     },
@@ -32,7 +32,7 @@
           },
           "conditions": [
             {
-              "id": "a0000006-0000-4000-8000-000000000002-a",
+              "id": "cond-app-id",
               "leftValue": "={{ $env.ADZUNA_APP_ID }}",
               "rightValue": "",
               "operator": {
@@ -42,7 +42,7 @@
               }
             },
             {
-              "id": "a0000006-0000-4000-8000-000000000002-b",
+              "id": "cond-app-key",
               "leftValue": "={{ $env.ADZUNA_APP_KEY }}",
               "rightValue": "",
               "operator": {
@@ -61,13 +61,26 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -400,
+        -420,
         0
       ]
     },
     {
       "parameters": {
-        "url": "=https://api.adzuna.com/v1/api/jobs/{{ $env.ADZUNA_COUNTRY || 'in' }}/search/1?app_id={{ $env.ADZUNA_APP_ID }}&app_key={{ $env.ADZUNA_APP_KEY }}&results_per_page=50&max_days_old=30&sort_by=date&content-type=application/json&what={{ encodeURIComponent($env.ADZUNA_QUERY || 'software engineer') }}",
+        "jsCode": "\n// One request per (country x search term), capped so the free API quota lasts.\n// Edit ADZUNA_COUNTRIES / ADZUNA_QUERIES in .env - no workflow change needed.\nconst DEFAULT_COUNTRIES = 'de,at,ch,nl,fr,gb,pl,es,it';\nconst countries = ($env.ADZUNA_COUNTRIES || DEFAULT_COUNTRIES)\n  .split(',')\n  .map((c) => c.trim().toLowerCase())\n  .filter(Boolean);\n\nconst queries = ($env.ADZUNA_QUERIES || $env.ADZUNA_QUERY || 'software engineer')\n  .split(',')\n  .map((q) => q.trim())\n  .filter(Boolean);\n\nconst cap = Number($env.ADZUNA_MAX_REQUESTS || 12);\n\nconst combos = [];\n// Term-major, so if the cap bites it drops extra search terms before it drops countries.\nfor (const what of queries) {\n  for (const country of countries) {\n    combos.push({ country, what });\n  }\n}\n\nif (!combos.length) {\n  return [{ json: { empty: true, note: 'ADZUNA_COUNTRIES / ADZUNA_QUERIES are empty' } }];\n}\n\nreturn combos.slice(0, cap).map((c) => ({\n  json: {\n    country: c.country,\n    what: c.what,\n    url:\n      'https://api.adzuna.com/v1/api/jobs/' + c.country + '/search/1' +\n      '?app_id=' + encodeURIComponent($env.ADZUNA_APP_ID || '') +\n      '&app_key=' + encodeURIComponent($env.ADZUNA_APP_KEY || '') +\n      '&results_per_page=50' +\n      '&max_days_old=30' +\n      '&sort_by=date' +\n      '&category=it-jobs' +\n      '&content-type=application/json' +\n      '&what=' + encodeURIComponent(c.what),\n  },\n}));\n"
+      },
+      "id": "a0000006-0000-4000-8000-000000000003",
+      "name": "Build country queries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        -120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
         "options": {
           "timeout": 25000,
           "response": {
@@ -77,13 +90,13 @@
           }
         }
       },
-      "id": "a0000006-0000-4000-8000-000000000003",
+      "id": "a0000006-0000-4000-8000-000000000004",
       "name": "Adzuna search",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -160,
-        -110
+        80,
+        -120
       ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
@@ -92,28 +105,28 @@
     },
     {
       "parameters": {
-        "jsCode": "\n// Adzuna returns { results: [ { title, company.display_name, location.display_name,\n// redirect_url, description (snippet), created, salary_min/max } ] }.\n// Same output contract as workflow 01, so the same SQL builder and table apply.\nfunction text(v) { return v === null || v === undefined ? '' : String(v); }\nfunction clean(s) {\n  return text(s).replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ')\n    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#\\d+;/g, ' ')\n    .replace(/\\s+/g, ' ').trim();\n}\nfunction fingerprint(company, title, location) {\n  const norm = (v) => text(v).toLowerCase()\n    .replace(/\\b(inc|llc|ltd|pvt|private|limited|corp|corporation|technologies|solutions|labs|gmbh)\\b/g, '')\n    .replace(/[^a-z0-9]+/g, ' ').trim();\n  const base = [norm(company), norm(title), norm(location)].join('|');\n  try {\n    const crypto = require('crypto');\n    return crypto.createHash('sha256').update(base).digest('hex').slice(0, 32);\n  } catch (e) {\n    let h = 2166136261;\n    for (let i = 0; i < base.length; i++) { h ^= base.charCodeAt(i); h = Math.imul(h, 16777619); }\n    return 'fnv' + (h >>> 0).toString(16) + base.length;\n  }\n}\n\nconst out = [];\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  const results = Array.isArray(j.results) ? j.results : Array.isArray(j) ? j : [];\n  for (const r of results) {\n    const title = clean(r.title);\n    const company = clean(r.company && (r.company.display_name || r.company));\n    const location = clean(r.location && (r.location.display_name || r.location));\n    if (!title || !company) continue;\n    const salary = r.salary_min || r.salary_max\n      ? text(r.salary_min) + '-' + text(r.salary_max) + ' ' + (r.salary_is_predicted ? '(est.)' : '')\n      : '';\n    out.push({\n      source: 'adzuna',\n      external_id: text(r.id),\n      title,\n      company,\n      location,\n      url: text(r.redirect_url),\n      description: clean(r.description),\n      salary_text: salary,\n      tags: r.category && r.category.label ? [clean(r.category.label)] : [],\n      posted_at: r.created || null,\n      fingerprint: fingerprint(company, title, location),\n    });\n  }\n}\n\nif (!out.length) return [{ json: { empty: true, note: 'Adzuna returned no results for this query' } }];\nreturn out.map((row) => ({ json: row }));\n"
+        "jsCode": "\n// One HTTP result per requested country, in order. Correlate by index so each\n// row knows which country's feed it came from - the API does not echo it back.\nconst queries = $('Build country queries').all();\nconst items = $input.all();\n\nfunction text(v) { return v === null || v === undefined ? '' : String(v); }\nfunction clean(s) {\n  return text(s).replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ')\n    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#\\d+;/g, ' ')\n    .replace(/\\s+/g, ' ').trim();\n}\nfunction fixMojibake(s) {\n  if (!/[\\u00C2\\u00C3\\u00E2][\\u0080-\\u00BF]/.test(s)) return s;\n  try {\n    const repaired = Buffer.from(s, 'latin1').toString('utf8');\n    if (!repaired.includes('\\uFFFD') && !/[\\u00C2\\u00C3\\u00E2][\\u0080-\\u00BF]/.test(repaired)) return repaired;\n  } catch (e) { /* keep original */ }\n  return s;\n}\nfunction fingerprint(company, title, location) {\n  const norm = (v) => text(v).toLowerCase()\n    .replace(/\\b(inc|llc|ltd|pvt|private|limited|corp|corporation|technologies|solutions|labs|gmbh|ag|sa|bv|srl|sarl)\\b/g, '')\n    .replace(/[^a-z0-9]+/g, ' ').trim();\n  const base = [norm(company), norm(title), norm(location)].join('|');\n  try {\n    const crypto = require('crypto');\n    return crypto.createHash('sha256').update(base).digest('hex').slice(0, 32);\n  } catch (e) {\n    let h = 2166136261;\n    for (let i = 0; i < base.length; i++) { h ^= base.charCodeAt(i); h = Math.imul(h, 16777619); }\n    return 'fnv' + (h >>> 0).toString(16) + base.length;\n  }\n}\n\nconst out = [];\nfor (let idx = 0; idx < items.length; idx++) {\n  const j = items[idx].json || {};\n  const meta = (queries[idx] && queries[idx].json) || {};\n\n  // A failed country (bad code, quota) arrives as an error object; skip it.\n  if (j.error) continue;\n\n  const results = Array.isArray(j.results) ? j.results : Array.isArray(j) ? j : [];\n  for (const r of results) {\n    const title = fixMojibake(clean(r.title));\n    const company = fixMojibake(clean(r.company && (r.company.display_name || r.company)));\n    const location = fixMojibake(clean(r.location && (r.location.display_name || r.location)));\n    if (!title || !company) continue;\n\n    const salary = r.salary_min || r.salary_max\n      ? text(r.salary_min) + '-' + text(r.salary_max) + ' ' + (String(r.salary_is_predicted) === '1' ? '(est.)' : '')\n      : '';\n\n    out.push({\n      source: 'adzuna',\n      external_id: text(r.id),\n      title,\n      company,\n      location,\n      country: meta.country || null,\n      url: text(r.redirect_url),\n      description: fixMojibake(clean(r.description)),\n      salary_text: salary,\n      tags: r.category && r.category.label ? [clean(r.category.label)] : [],\n      posted_at: r.created || null,\n      fingerprint: fingerprint(company, title, location),\n    });\n  }\n}\n\nif (!out.length) {\n  return [{ json: { empty: true, note: 'Adzuna returned no usable results for these countries/terms' } }];\n}\nreturn out.map((row) => ({ json: row }));\n"
       },
-      "id": "a0000006-0000-4000-8000-000000000004",
+      "id": "a0000006-0000-4000-8000-000000000005",
       "name": "Normalise Adzuna",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        100,
-        -110
+        340,
+        -120
       ]
     },
     {
       "parameters": {
-        "jsCode": "// One INSERT per 75 rows, with ON CONFLICT DO NOTHING so re-running the\n// workflow is safe (idempotency lives in the database, not in the code).\nconst items = $input.all().map((i) => i.json).filter((r) => r && r.fingerprint);\nif (!items.length) return [{ json: { rows: 0, sql: 'SELECT 1;' } }];\n\nconst esc = (v) =>\n  v === null || v === undefined || v === ''\n    ? 'NULL'\n    : \"'\" + String(v).replace(/\\u0000/g, '').replace(/'/g, \"''\") + \"'\";\n\nconst jsonb = (v) =>\n  \"'\" + JSON.stringify(Array.isArray(v) ? v : []).replace(/'/g, \"''\") + \"'::jsonb\";\n\nconst stamp = (v) => {\n  if (!v) return 'NULL';\n  const d = new Date(v);\n  return isNaN(d.getTime()) ? 'NULL' : \"'\" + d.toISOString() + \"'::timestamptz\";\n};\n\nconst CHUNK = 75;\nconst chunks = [];\nfor (let i = 0; i < items.length; i += CHUNK) chunks.push(items.slice(i, i + CHUNK));\n\nreturn chunks.map((rows, idx) => ({\n  json: {\n    chunk: idx + 1,\n    rows: rows.length,\n    sql:\n      'INSERT INTO jobs (source, external_id, title, company, location, url, description, salary_text, tags, fingerprint, posted_at) VALUES ' +\n      rows\n        .map(\n          (r) =>\n            '(' +\n            [\n              esc(r.source),\n              esc(r.external_id),\n              esc(r.title),\n              esc(r.company),\n              esc(r.location),\n              esc(r.url),\n              esc(r.description),\n              esc(r.salary_text),\n              jsonb(r.tags),\n              esc(r.fingerprint),\n              stamp(r.posted_at),\n            ].join(',') +\n            ')'\n        )\n        .join(',') +\n      ' ON CONFLICT (fingerprint) DO NOTHING RETURNING id;',\n  },\n}));"
+        "jsCode": "// One INSERT per 75 rows, with ON CONFLICT DO NOTHING so re-running the\n// workflow is safe (idempotency lives in the database, not in the code).\nconst items = $input.all().map((i) => i.json).filter((r) => r && r.fingerprint);\nif (!items.length) return [{ json: { rows: 0, sql: 'SELECT 1;' } }];\n\nconst esc = (v) =>\n  v === null || v === undefined || v === ''\n    ? 'NULL'\n    : \"'\" + String(v).replace(/\\u0000/g, '').replace(/'/g, \"''\") + \"'\";\n\nconst jsonb = (v) =>\n  \"'\" + JSON.stringify(Array.isArray(v) ? v : []).replace(/'/g, \"''\") + \"'::jsonb\";\n\nconst stamp = (v) => {\n  if (!v) return 'NULL';\n  const d = new Date(v);\n  return isNaN(d.getTime()) ? 'NULL' : \"'\" + d.toISOString() + \"'::timestamptz\";\n};\n\nconst CHUNK = 75;\nconst chunks = [];\nfor (let i = 0; i < items.length; i += CHUNK) chunks.push(items.slice(i, i + CHUNK));\n\nreturn chunks.map((rows, idx) => ({\n  json: {\n    chunk: idx + 1,\n    rows: rows.length,\n    sql:\n      'INSERT INTO jobs (source, external_id, title, company, location, country, url, description, salary_text, tags, fingerprint, posted_at) VALUES ' +\n      rows\n        .map(\n          (r) =>\n            '(' +\n            [\n              esc(r.source),\n              esc(r.external_id),\n              esc(r.title),\n              esc(r.company),\n              esc(r.location),\n              // undefined for rows that carry no location (alert emails) -> NULL\n              esc(r.country),\n              esc(r.url),\n              esc(r.description),\n              esc(r.salary_text),\n              jsonb(r.tags),\n              esc(r.fingerprint),\n              stamp(r.posted_at),\n            ].join(',') +\n            ')'\n        )\n        .join(',') +\n      ' ON CONFLICT (fingerprint) DO NOTHING RETURNING id;',\n  },\n}));"
       },
-      "id": "a0000006-0000-4000-8000-000000000005",
+      "id": "a0000006-0000-4000-8000-000000000006",
       "name": "Build SQL chunks",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        360,
-        -110
+        600,
+        -120
       ]
     },
     {
@@ -122,13 +135,13 @@
         "query": "={{ $json.sql }}",
         "options": {}
       },
-      "id": "a0000006-0000-4000-8000-000000000006",
+      "id": "a0000006-0000-4000-8000-000000000007",
       "name": "Upsert jobs",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [
-        620,
-        -110
+        860,
+        -120
       ],
       "credentials": {
         "postgres": {
@@ -140,33 +153,33 @@
     },
     {
       "parameters": {
-        "jsCode": "\nconst fetched = $('Normalise Adzuna').all().filter((i) => i.json && i.json.fingerprint).length;\nconst offered = $('Build SQL chunks').all().reduce((n, i) => n + (i.json.rows || 0), 0);\nlet inserted = 0;\nfor (const i of $input.all()) {\n  const j = i.json || {};\n  if (Array.isArray(j)) inserted += j.length;\n  else if (Array.isArray(j.rows)) inserted += j.rows.length;\n  else if (j.id !== undefined) inserted += 1;\n}\nreturn [{ json: { source: 'adzuna', fetched, unique_in_batch: offered, new_rows: inserted, duplicates_skipped: Math.max(offered - inserted, 0) } }];\n"
+        "jsCode": "\nconst fetched = $('Normalise Adzuna').all().filter((i) => i.json && i.json.fingerprint).length;\nconst offered = $('Build SQL chunks').all().reduce((n, i) => n + (i.json.rows || 0), 0);\nlet inserted = 0;\nfor (const i of $input.all()) {\n  const j = i.json || {};\n  if (Array.isArray(j)) inserted += j.length;\n  else if (Array.isArray(j.rows)) inserted += j.rows.length;\n  else if (j.id !== undefined) inserted += 1;\n}\n\nconst byCountry = {};\nfor (const i of $('Normalise Adzuna').all()) {\n  const c = i.json && i.json.country;\n  if (c) byCountry[c] = (byCountry[c] || 0) + 1;\n}\n\nreturn [{ json: {\n  source: 'adzuna',\n  countries_requested: $('Build country queries').all().length,\n  fetched,\n  unique_in_batch: offered,\n  new_rows: inserted,\n  duplicates_skipped: Math.max(offered - inserted, 0),\n  by_country: byCountry,\n} }];\n"
       },
-      "id": "a0000006-0000-4000-8000-000000000007",
+      "id": "a0000006-0000-4000-8000-000000000008",
       "name": "Run summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        880,
-        -110
+        1120,
+        -120
       ]
     },
     {
       "parameters": {
-        "jsCode": "return [{ json: { skipped: true, reason: 'ADZUNA_APP_ID / ADZUNA_APP_KEY empty.', next: 'Free key at developer.adzuna.com, then add both to .env and run: docker compose up -d --force-recreate n8n' } }];"
+        "jsCode": "return [{ json: { skipped: true, reason: 'ADZUNA_APP_ID / ADZUNA_APP_KEY empty.', next: 'Free key at developer.adzuna.com/signup, add both to .env, then: docker compose up -d --force-recreate n8n' } }];"
       },
-      "id": "a0000006-0000-4000-8000-000000000008",
+      "id": "a0000006-0000-4000-8000-000000000009",
       "name": "Explain skip",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -160,
-        90
+        -180,
+        100
       ]
     }
   ],
   "connections": {
-    "Every 6 hours": {
+    "Every 12 hours": {
       "main": [
         [
           {
@@ -181,7 +194,7 @@
       "main": [
         [
           {
-            "node": "Adzuna search",
+            "node": "Build country queries",
             "type": "main",
             "index": 0
           }
@@ -189,6 +202,17 @@
         [
           {
             "node": "Explain skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build country queries": {
+      "main": [
+        [
+          {
+            "node": "Adzuna search",
             "type": "main",
             "index": 0
           }

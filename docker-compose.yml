@@ -50,8 +50,9 @@ services:
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       ADZUNA_APP_ID: ${ADZUNA_APP_ID:-}
       ADZUNA_APP_KEY: ${ADZUNA_APP_KEY:-}
-      ADZUNA_COUNTRY: ${ADZUNA_COUNTRY:-in}
-      ADZUNA_QUERY: ${ADZUNA_QUERY:-software engineer}
+      ADZUNA_COUNTRIES: ${ADZUNA_COUNTRIES:-de,at,ch,nl,fr,gb,pl,es,it}
+      ADZUNA_QUERIES: ${ADZUNA_QUERIES:-software engineer}
+      ADZUNA_MAX_REQUESTS: ${ADZUNA_MAX_REQUESTS:-12}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./workflows:/workflows:ro

@@ -90,6 +90,8 @@ Two supporting flows: **04** catches failures (error trigger → incidents table
 | `workflows/03-daily-digest.json` | Flow C | The part you actually look at |
 | `workflows/04-error-handler.json` | Failure path | So a 3 a.m. failure leaves a row behind, not silence |
 | `workflows/05-ai-cover-letter.json` | Optional AI | Only place an LLM is used |
+| `workflows/06-ingest-adzuna.json` | Adzuna, one request per country | The only source you can point at a named country (Europe/India) |
+| `workflows/07-ingest-job-alerts.json` | IMAP → LinkedIn/Indeed/Naukri links | The legal way to cover those three sites |
 | `scripts/start.ps1` | Boot + wait for readiness | Removes the "is it up yet?" guesswork |
 | `scripts/import-workflows.ps1` | Loads the 5 JSONs into n8n | The JSON files are the source of truth, not the UI |
 | `scripts/reset.ps1` | Deletes both volumes | Clean slate before a demo |
@@ -114,6 +116,7 @@ Everything lives in the same Postgres database that n8n uses for itself (databas
 | `source` | `remotive` / `arbeitnow` / `remoteok` / `jobicy` |
 | `external_id` | the board's own id |
 | `title`, `company`, `location`, `url`, `description`, `salary_text`, `tags` | normalised fields |
+| `country` | coarse region tag: `de`, `gb`, `nl`, `us`, `in`, `remote`, … |
 | **`fingerprint`** | `sha256(company + title + location)`, normalised — **UNIQUE** |
 | `score` | 0–100, NULL until workflow 02 runs |
 | `score_reasons` | JSON array like `["skills 40/40 (api, sql, docker)", …]` |
@@ -279,8 +282,11 @@ What it extracts: `linkedin.com/jobs/view/<id>`, `indeed.com/viewjob?jk=<id>`, `
 ### Adzuna in one minute
 
 1. Sign up at `developer.adzuna.com/signup` → you get `app_id` and `app_key`.
-2. Put both in `.env`, plus optionally `ADZUNA_COUNTRY=in` and `ADZUNA_QUERY=node.js developer`.
+2. Put both in `.env`, then set the coverage you want:
+   `ADZUNA_COUNTRIES=de,at,ch,nl,fr,gb,pl,es,it`, `ADZUNA_QUERIES=software engineer`, `ADZUNA_MAX_REQUESTS=12`.
 3. `docker compose up -d --force-recreate n8n`, then run workflow 06.
+
+Workflow 06 builds **one request per country × search term**, filters with `category=it-jobs`, and stops at `ADZUNA_MAX_REQUESTS` so the free quota lasts. The combos are term-major, so when the cap bites it drops extra search terms before it drops countries. A failed country (bad code, quota) is skipped and the rest still insert — the same failure isolation as workflow 01.
 
 No key? Workflow 06 takes the false branch and reports "skipped" — green, not red.
 

@@ -43,8 +43,12 @@ Be honest with yourself about the goal: today you can ship a working, documented
 Only if you want LinkedIn/Indeed/Naukri coverage.
 
 - [ ] Sign up at `developer.adzuna.com/signup` → copy `app_id` + `app_key`
-- [ ] Add `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `ADZUNA_COUNTRY=in`, `ADZUNA_QUERY=<your role>` to `.env`
+- [ ] Add to `.env`:
+      `ADZUNA_APP_ID=…`, `ADZUNA_APP_KEY=…`,
+      `ADZUNA_COUNTRIES=de,at,ch,nl,fr,gb,pl,es,it`,
+      `ADZUNA_QUERIES=software engineer`, `ADZUNA_MAX_REQUESTS=12`
 - [ ] `docker compose up -d --force-recreate n8n` → run **06 · Ingest Adzuna**
+- [ ] Check per-country coverage: `SELECT country, count(*) FROM jobs GROUP BY 1 ORDER BY 2 DESC;`
 - [ ] Gmail: enable 2FA → create an App Password → in n8n, Credentials → New → IMAP (`imap.gmail.com`, 993, SSL, your address + app password)
 - [ ] Open **07 · Ingest Job-Alert Emails** → select that credential
 - [ ] Make sure you actually receive alerts: LinkedIn "Job alert", Indeed "Email alerts", Naukri "Job alerts"
