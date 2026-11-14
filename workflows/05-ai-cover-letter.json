@@ -7,7 +7,10 @@
       "name": "Manual run",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [-620, 0]
+      "position": [
+        -620,
+        0
+      ]
     },
     {
       "parameters": {
@@ -19,21 +22,30 @@
       "name": "Pick best job",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [-380, 0],
+      "position": [
+        -380,
+        0
+      ],
       "credentials": {
-        "postgres": { "id": "jobpilot-postgres", "name": "JobPilot Postgres" }
+        "postgres": {
+          "id": "jobpilot-postgres",
+          "name": "JobPilot Postgres"
+        }
       },
       "alwaysOutputData": true
     },
     {
       "parameters": {
-        "jsCode": "// -----------------------------------------------------------------------\n// EDIT THIS: your real, factual background. The prompt is explicitly told\n// never to invent anything outside this block - that is the hallucination guard.\n// -----------------------------------------------------------------------\nconst FACTS = `\nName: Your Name\nRole: Backend / automation engineer, 2 years experience\nCurrently: builds internal tooling with Node.js, TypeScript, PostgreSQL, Docker\nShipped: an n8n pipeline that ingests ~1,200 job postings/month with dedupe and LLM scoring\nShipped: a REST API serving 50k requests/day on AWS ECS\nCertifications: AWS Cloud Practitioner\nStrongest skills: JavaScript, TypeScript, Python, SQL, Docker, API design, n8n\nLimitations: no Kubernetes in production, no formal ML training\n`.trim();\n\nconst job = $input.first().json;\nif (!job || job.id === undefined) {\n  return [{ json: { empty: true, note: 'No unscored job with score >= 70. Run 01 and 02 first, or lower the threshold.' } }];\n}\n\nconst jd = String(job.description || '').slice(0, 4000);\nconst keywords = (job.matched_keywords || []).slice(0, 8).join(', ');\n\nconst system =\n  'You write short, specific cover letters. Rules: (1) use ONLY facts from the CANDIDATE block, ' +\n  '(2) never invent employers, degrees, metrics or skills, (3) if the candidate lacks something the job asks for, do not claim it, ' +\n  '(4) 110-150 words, plain text, no markdown, no greeting placeholder other than \"Dear <Company> team\", ' +\n  '(5) mention at most 3 overlapping technologies, (6) end with one concrete sentence about what the candidate would do in week one.';\n\nconst user =\n  'CANDIDATE\\n' + FACTS + '\\n\\nJOB\\nTitle: ' + job.title + '\\nCompany: ' + job.company + '\\nLocation: ' + (job.location || 'n/a') +\n  '\\nOverlapping keywords detected: ' + (keywords || 'none') + '\\n\\nJOB DESCRIPTION\\n' + jd +\n  '\\n\\nWrite the cover letter now.';\n\nreturn [{ json: { job_id: Number(job.id), title: job.title, company: job.company, system, user, model: 'llama-3.3-70b-versatile', prompt_version: 'v1' } }];"
+        "jsCode": "// -----------------------------------------------------------------------\n// EDIT THIS: your real, factual background. The prompt is explicitly told\n// never to invent anything outside this block - that is the hallucination guard.\n// -----------------------------------------------------------------------\nconst FACTS = `\nName: Your Name\nRole: Backend / automation engineer, 2 years experience\nCurrently: builds internal tooling with Node.js, TypeScript, PostgreSQL, Docker\nShipped: an n8n pipeline that ingests ~1,200 job postings/month with dedupe and LLM scoring\nShipped: a REST API serving 50k requests/day on AWS ECS\nCertifications: AWS Cloud Practitioner\nStrongest skills: JavaScript, TypeScript, Python, SQL, Docker, API design, n8n\nLimitations: no Kubernetes in production, no formal ML training\n`.trim();\n\nconst job = $input.first().json;\nif (!job || job.id === undefined) {\n  return [{ json: { empty: true, note: 'No unscored job with score >= 70. Run 01 and 02 first, or lower the threshold.' } }];\n}\n\nconst jd = String(job.description || '').slice(0, 4000);\nconst keywords = (job.matched_keywords || []).slice(0, 8).join(', ');\n\nconst system =\n  'You write short, specific cover letters. Rules: (1) use ONLY facts from the CANDIDATE block, ' +\n  '(2) never invent employers, degrees, metrics or skills, (3) if the candidate lacks something the job asks for, do not claim it, ' +\n  '(4) 110-150 words, plain text, no markdown, no greeting placeholder other than \"Dear <Company> team\", ' +\n  '(5) mention at most 3 overlapping technologies, (6) end with one concrete sentence about what the candidate would do in week one.';\n\nconst user =\n  'CANDIDATE\\n' + FACTS + '\\n\\nJOB\\nTitle: ' + job.title + '\\nCompany: ' + job.company + '\\nLocation: ' + (job.location || 'n/a') +\n  '\\nOverlapping keywords detected: ' + (keywords || 'none') + '\\n\\nJOB DESCRIPTION\\n' + jd +\n  '\\n\\nWrite the cover letter now.';\n\nreturn [{ json: { job_id: Number(job.id), title: job.title, company: job.company, system, user, model: 'openai/gpt-oss-120b' /* Groq retired llama-3.3; gpt-oss is a reasoning model, so the request uses reasoning_effort: low + 1200 tokens */, prompt_version: 'v1' } }];"
       },
       "id": "a0000005-0000-4000-8000-000000000003",
       "name": "Build prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-120, 0]
+      "position": [
+        -120,
+        0
+      ]
     },
     {
       "parameters": {
@@ -64,7 +76,10 @@
       "name": "Groq key present?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [140, 0]
+      "position": [
+        140,
+        0
+      ]
     },
     {
       "parameters": {
@@ -73,19 +88,27 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{ $env.GROQ_API_KEY }}" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.GROQ_API_KEY }}"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $('Build prompt').first().json.model, temperature: 0.4, max_tokens: 400, messages: [ { role: 'system', content: $('Build prompt').first().json.system }, { role: 'user', content: $('Build prompt').first().json.user } ] }) }}",
-        "options": { "timeout": 60000 }
+        "jsonBody": "={{ JSON.stringify({ model: $('Build prompt').first().json.model, temperature: 0.4, reasoning_effort: 'low', max_tokens: 1200, messages: [ { role: 'system', content: $('Build prompt').first().json.system }, { role: 'user', content: $('Build prompt').first().json.user } ] }) }}",
+        "options": {
+          "timeout": 60000
+        }
       },
       "id": "a0000005-0000-4000-8000-000000000005",
       "name": "Generate (Groq)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [400, -100],
+      "position": [
+        400,
+        -100
+      ],
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 4000
@@ -98,7 +121,10 @@
       "name": "Extract letter",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [660, -100]
+      "position": [
+        660,
+        -100
+      ]
     },
     {
       "parameters": {
@@ -110,9 +136,15 @@
       "name": "Save letter",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [920, -100],
+      "position": [
+        920,
+        -100
+      ],
       "credentials": {
-        "postgres": { "id": "jobpilot-postgres", "name": "JobPilot Postgres" }
+        "postgres": {
+          "id": "jobpilot-postgres",
+          "name": "JobPilot Postgres"
+        }
       },
       "alwaysOutputData": true
     },
@@ -124,25 +156,94 @@
       "name": "Explain skip",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [400, 60]
+      "position": [
+        400,
+        60
+      ]
     }
   ],
   "connections": {
-    "Manual run": { "main": [[{ "node": "Pick best job", "type": "main", "index": 0 }]] },
-    "Pick best job": { "main": [[{ "node": "Build prompt", "type": "main", "index": 0 }]] },
-    "Build prompt": { "main": [[{ "node": "Groq key present?", "type": "main", "index": 0 }]] },
-    "Groq key present?": {
+    "Manual run": {
       "main": [
-        [{ "node": "Generate (Groq)", "type": "main", "index": 0 }],
-        [{ "node": "Explain skip", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Pick best job",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Generate (Groq)": { "main": [[{ "node": "Extract letter", "type": "main", "index": 0 }]] },
-    "Extract letter": { "main": [[{ "node": "Save letter", "type": "main", "index": 0 }]] }
+    "Pick best job": {
+      "main": [
+        [
+          {
+            "node": "Build prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build prompt": {
+      "main": [
+        [
+          {
+            "node": "Groq key present?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq key present?": {
+      "main": [
+        [
+          {
+            "node": "Generate (Groq)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Explain skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate (Groq)": {
+      "main": [
+        [
+          {
+            "node": "Extract letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract letter": {
+      "main": [
+        [
+          {
+            "node": "Save letter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "active": false,
   "pinData": {},
   "tags": [],
-  "meta": { "templateCredsSetupCompleted": false }
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
 }
