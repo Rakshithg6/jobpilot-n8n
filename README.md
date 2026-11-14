@@ -198,6 +198,8 @@ Numbers from the first real run, not estimates:
 | Alert-email parser (synthetic alerts) | 3/3 sources extracted correctly; duplicate link collapsed; unrelated email ignored |
 | Region tagging (live sample, 2026-11-13) | 235/461 rows tagged Europe (de 81, fr 46, nl 42, gb 39, ch 24); 158 software/AI/SDE titles |
 | Adzuna multi-country builder | 9 countries × 2 terms capped to 6 requests; failed country skipped, `category=it-jobs` applied |
+| Adzuna live pull (2026-11-14) | 450 results across `de,at,ch,nl,fr,gb,pl,es,it`; 439 new rows after fingerprint dedupe |
+| Europe-first digest | Ranks EU/EEA rows above global ones at the same score; NULL-country rows no longer sort first |
 | Adzuna normaliser (documented response shape) | backend role scored 79, commission-only sales role scored 0 |
 
 That 9% is the point: the boards are ~90% noise, and the ranking is what turns them into ten applications a day.
@@ -237,7 +239,7 @@ db/init.sql               schema, indexes, funnel view, constraints
 workflows/
   01-ingest-jobs.json     schedule → 4 boards → normalise → dedupe → upsert
   02-score-jobs.json      unscored queue → deterministic score → gap report
-  03-daily-digest.json    top 10 → HTML → DB → Telegram (optional)
+  03-daily-digest.json    Europe-first top 10 → HTML → DB → Telegram (optional)
   04-error-handler.json   error trigger → incidents table → alert
   05-ai-cover-letter.json manual → grounded prompt → Groq → store
   06-ingest-adzuna.json   Adzuna search (country=in), env-gated, no key = green skip

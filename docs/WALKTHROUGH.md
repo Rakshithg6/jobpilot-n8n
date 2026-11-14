@@ -64,7 +64,9 @@ one UPDATE statement writes score + reasons + matched/missing keywords
 ```
 alarm (09:00 daily)
    ↓
-SELECT top 10 WHERE score >= 70 AND status = 'new' AND digested_at IS NULL
+SELECT top 10 WHERE score >= 55 AND status = 'new' AND digested_at IS NULL
+   -- Europe/EEA rows sort first, then by score, so German roles are not
+   -- crowded out by remote or US postings.
    ↓
 JavaScript builds an HTML table and a plain-text message
    ↓

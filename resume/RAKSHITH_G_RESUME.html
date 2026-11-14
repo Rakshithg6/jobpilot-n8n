@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rakshith G — Software Engineer</title>
+<style>
+  @page { size: A4; margin: 10mm 12mm 9mm; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: "Calibri", "Segoe UI", Arial, sans-serif;
+    font-size: 9.3pt;
+    line-height: 1.22;
+    color: #16181d;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  header { border-bottom: 2px solid #16181d; padding-bottom: 6px; margin-bottom: 9px; }
+  h1 { font-size: 20pt; letter-spacing: .5px; margin: 0 0 1px; font-weight: 700; }
+  .role { font-size: 10pt; color: #4a4f57; margin: 0 0 4px; }
+  .contact { font-size: 9pt; color: #33373d; }
+  .contact span + span::before { content: " · "; color: #9aa0a6; }
+  h2 {
+    font-size: 10pt; text-transform: uppercase; letter-spacing: .9px;
+    margin: 7px 0 2px; padding-bottom: 1px; border-bottom: 1px solid #c9ced6;
+  }
+  p { margin: 0 0 3px; }
+  .job { margin: 0 0 4px; }
+  .job-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .job-title { font-weight: 700; }
+  .job-title .co { font-weight: 400; color: #3c414a; }
+  .dates { font-size: 9pt; color: #5b6169; white-space: nowrap; }
+  ul { margin: 1px 0 0; padding-left: 15px; }
+  li { margin: 0 0 1px; }
+  .skills div { margin: 0; }
+  .skills b { font-weight: 700; }
+  .proj-title { font-weight: 700; }
+  .proj-stack { font-weight: 400; color: #4a4f57; margin: 0; font-size: 9.2pt; }
+  .muted { color: #5b6169; }
+  .one-line { display: flex; justify-content: space-between; gap: 10px; }
+  @media print { .job { page-break-inside: avoid; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>RAKSHITH G</h1>
+  <p class="role">Software Engineer — Full-Stack &amp; AI</p>
+  <div class="contact">
+    <span>+91-7019729247</span>
+    <span>rakshithg.6113@gmail.com</span>
+    <span>github.com/Rakshithg6</span>
+    <span>LinkedIn: Rakshith_G</span>
+    <span>Portfolio: Rakshith_G</span>
+  </div>
+</header>
+
+<h2>Summary</h2>
+<p>Software engineer with client delivery experience at EY and hands-on LLM/RAG work. Ships full-stack features with React, Node.js and Python, and AI features with LangChain, RAG and vector search. B.E. in Electronics and Communication with strong DSA fundamentals.</p>
+
+<h2>Experience</h2>
+
+<div class="job">
+  <div class="job-head">
+    <div class="job-title">Analyst <span class="co">— EY (Assurance)</span></div>
+    <div class="dates">Mar 2026 – Oct 2026</div>
+  </div>
+  <ul>
+    <li>Built onboarding and payout workflows for a healthcare client's Doctor Payout proof of concept on the Cloud Nine platform.</li>
+    <li>Delivered data analysis and reporting features for the Jewellery Analyzer engagement.</li>
+    <li>Worked in React and Node.js in a live client setting and improved Git practices across the team.</li>
+  </ul>
+</div>
+
+<div class="job">
+  <div class="job-head">
+    <div class="job-title">Science Communicator <span class="co">— PARAM Innovation (part-time, weekends)</span></div>
+    <div class="dates">Jul 2025 – Apr 2026</div>
+  </div>
+  <ul>
+    <li>Explained complex engineering concepts through live demonstrations and exhibits; translated technical research for non-specialist audiences.</li>
+  </ul>
+</div>
+
+<div class="job">
+  <div class="job-head">
+    <div class="job-title">Freelance Software Developer</div>
+    <div class="dates">May 2025 – Aug 2025</div>
+  </div>
+  <ul>
+    <li>Built AI-driven tools in Python and JavaScript to automate client business workflows.</li>
+    <li>Designed and maintained backend services and databases for reliable data processing.</li>
+  </ul>
+</div>
+
+<div class="job">
+  <div class="job-head">
+    <div class="job-title">Artificial Intelligence Engineer Intern <span class="co">— Excentrix Ventures Pvt. Ltd.</span></div>
+    <div class="dates">Oct 2024 – Jan 2025</div>
+  </div>
+  <ul>
+    <li>Designed and deployed ML pipelines in Python with Scikit-learn and TensorFlow for predictive analytics.</li>
+    <li>Built LLM-powered backend services with LangChain and database integration; engineered a conversational AI system with NLP-based query handling.</li>
+  </ul>
+</div>
+
+<h2>Projects</h2>
+
+<div class="job">
+  <div class="job-head">
+    <div class="job-title">JobPilot — Self-Hosted Job-Hunt Pipeline</div>
+    <div class="dates">Nov 2026 – Present</div>
+  </div>
+  <p class="proj-stack">n8n · PostgreSQL · Docker · Telegram Bot API</p>
+  <ul>
+    <li>Built a 7-workflow system that ingests roughly 460 postings from four public job boards plus Adzuna.</li>
+    <li>Enforced idempotency with content fingerprints and <code>ON CONFLICT</code> upserts — zero duplicate rows on replay.</li>
+    <li>Scored every posting deterministically on skills, stack, title, remote status and recency, then delivered a daily ranked digest to Telegram.</li>
+    <li>Added a structural lint harness that validates every workflow before import, and region tagging for country-level filtering.</li>
+  </ul>
+</div>
+
+<div class="job">
+  <div class="job-head">
+    <div class="job-title">AI-Powered Recruitment Platform</div>
+  </div>
+  <p class="proj-stack">React · Node.js · Express · Gemini API · MongoDB · Docker · GCP</p>
+  <ul>
+    <li>Built an end-to-end flow for resume screening, interview scheduling and candidate shortlisting, with LLM question generation and NLP resume analysis.</li>
+  </ul>
+</div>
+
+<div class="job">
+  <div class="job-head">
+    <div class="job-title">Job Recommendation Agent (RAG)</div>
+  </div>
+  <p class="proj-stack">FastAPI · Streamlit · LangChain · Gemini API · MongoDB</p>
+  <ul>
+    <li>Built a retrieval-augmented generation engine for personalised job recommendations using semantic search; optimised retrieval for low latency.</li>
+  </ul>
+</div>
+
+<div class="job">
+  <div class="job-head">
+    <div class="job-title">Personal Finance Analyzer</div>
+  </div>
+  <p class="proj-stack">React (Vite) · TypeScript · Node.js · FastAPI · MongoDB</p>
+  <ul>
+    <li>Built a full-stack app for real-time income and expense tracking with smart categorisation, interactive charts, goals and downloadable reports.</li>
+  </ul>
+</div>
+
+<h2>Technical Skills</h2>
+<div class="skills">
+  <div><b>Languages:</b> Java (Core, OOP), Python, JavaScript, TypeScript</div>
+  <div><b>Backend &amp; Frontend:</b> Node.js, Express, FastAPI, Django, React, HTML, CSS</div>
+  <div><b>Databases:</b> PostgreSQL, MySQL, MongoDB</div>
+  <div><b>AI/ML:</b> Scikit-learn, TensorFlow, NLP, LLMs, LangChain, LangGraph, RAG, FAISS, OpenCV</div>
+  <div><b>Cloud &amp; DevOps:</b> Docker, GCP, Vercel, Render, MongoDB Atlas, Git, GitHub · <b>OS:</b> Linux/Unix, Windows</div>
+  <div><b>DSA:</b> arrays, strings, linked lists, stacks, queues, hashing, trees, graphs, recursion, sorting, searching</div>
+</div>
+
+<h2>Education</h2>
+<div class="one-line">
+  <div><b>B.E. Electronics and Communication</b> — Global Academy of Technology · CGPA 7.12</div>
+  <div class="dates">Sep 2021 – Jul 2025</div>
+</div>
+
+<h2>Certifications</h2>
+<p>Data Science using Python (IIT Madras) · Artificial Intelligence (Infosys) · Git &amp; GitHub (Microsoft) · DSA (TUF+)</p>
+
+<h2>Achievements</h2>
+<ul>
+  <li>Vice-Chairperson, IEEE ComSoc Student Chapter; organised the NEXUS Hackathon. IEEE R10 ACEI Entrepreneurship Ambassador 2025, Bangalore Section.</li>
+  <li>Conference presenter, ICATECS-2024: Heart Failure Detection using Explainable AI.</li>
+</ul>
+
+</body>
+</html>
