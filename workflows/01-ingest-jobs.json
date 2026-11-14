@@ -123,6 +123,31 @@
     },
     {
       "parameters": {
+        "url": "https://jobicy.com/api/v2/remote-jobs?count=50&geo=usa",
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "a0000001-0000-4000-8000-000000000010",
+      "name": "Jobicy US",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -380,
+        450
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
         "jsCode": "// Normalise four different API shapes into one schema.\n// Defensive by design: a source returning garbage must never kill the run.\nconst MAX_DESC = 4000;\n\nconst text = (v) => (v === null || v === undefined ? '' : String(v));\nconst strip = (s) =>\n  text(s)\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&#\\d+;/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n\n// Some feeds double-encode UTF-8 (an en dash arrives as \"a-hat + control chars\").\n// Repair only when the result is unambiguous, so real text is never mangled.\nfunction fixMojibake(s) {\n  if (!/[\\u00C2\\u00C3\\u00E2][\\u0080-\\u00BF]/.test(s)) return s;\n  try {\n    const repaired = Buffer.from(s, 'latin1').toString('utf8');\n    if (!repaired.includes('\\uFFFD') && !/[\\u00C2\\u00C3\\u00E2][\\u0080-\\u00BF]/.test(repaired)) return repaired;\n  } catch (e) {\n    /* not repairable - keep the original */\n  }\n  return s;\n}\n\nconst clean = (s) => fixMojibake(strip(s));\n\nfunction fingerprint(company, title, location) {\n  const norm = (v) =>\n    text(v)\n      .toLowerCase()\n      .replace(/\\b(inc|llc|ltd|pvt|private|limited|corp|corporation|technologies|solutions|labs|gmbh)\\b/g, '')\n      .replace(/[^a-z0-9]+/g, ' ')\n      .trim();\n  const base = [norm(company), norm(title), norm(location)].join('|');\n  try {\n    const crypto = require('crypto');\n    return crypto.createHash('sha256').update(base).digest('hex').slice(0, 32);\n  } catch (e) {\n    // Fallback so the workflow still runs in a hardened sandbox.\n    let h = 2166136261;\n    for (let i = 0; i < base.length; i++) {\n      h ^= base.charCodeAt(i);\n      h = Math.imul(h, 16777619);\n    }\n    return 'fnv' + (h >>> 0).toString(16) + base.length;\n  }\n}\n\nconst tagsOf = (t) => {\n  const arr = Array.isArray(t) ? t : [];\n  return arr\n    .map((x) => clean(typeof x === 'string' ? x : (x && (x.name || x.label)) || ''))\n    .filter(Boolean)\n    .slice(0, 12);\n};\n\nconst ts = (v) => {\n  if (!v) return null;\n  const d = new Date(typeof v === 'number' ? v * 1000 : v);\n  return isNaN(d.getTime()) ? null : d.toISOString();\n};\n\n// Coarse country/region tag so you can filter \"show me Germany\" with one WHERE.\n// First match wins, so city names beat generic words like \"Remote\".\nconst COUNTRY_HINTS = [\n  ['de', /germany|deutschland|berlin|munich|münchen|munchen|hamburg|frankfurt|cologne|köln|koln|stuttgart|düsseldorf|dusseldorf|leipzig|dresden/],\n  ['at', /austria|österreich|osterreich|vienna|wien|graz|linz/],\n  ['ch', /switzerland|schweiz|zurich|zürich|geneva|genf|basel|lausanne/],\n  ['nl', /netherlands|nederland|amsterdam|rotterdam|utrecht|eindhoven|the hague/],\n  ['fr', /france|paris|lyon|toulouse|nantes|bordeaux|lille/],\n  ['es', /spain|españa|espana|madrid|barcelona|valencia|seville/],\n  ['it', /italy|italia|milan|milano|rome|roma|turin|torino|bologna/],\n  ['pl', /poland|polska|warsaw|warszawa|krakow|kraków|wroclaw|gdańsk|gdansk/],\n  ['ie', /ireland|dublin|cork|galway/],\n  ['gb', /united kingdom|great britain|england|scotland|wales|london|manchester|edinburgh|birmingham|leeds|bristol|glasgow/],\n  ['se', /sweden|stockholm|gothenburg|malmö|malmo/],\n  ['dk', /denmark|copenhagen|aarhus/],\n  ['no', /norway|oslo|bergen/],\n  ['fi', /finland|helsinki|espoo/],\n  ['pt', /portugal|lisbon|lisboa|porto/],\n  ['cz', /czech|prague|praha|brno/],\n  ['ro', /romania|bucharest|cluj/],\n  ['ca', /canada|toronto|vancouver|montreal|ottawa|calgary/],\n  ['us', /united states|\\busa\\b|u\\.s\\.|new york|san francisco|seattle|austin|boston|chicago|denver|atlanta/],\n  ['in', /india|bangalore|bengaluru|hyderabad|pune|chennai|mumbai|delhi|noida|gurgaon|gurugram|ahmedabad|kolkata/],\n  ['au', /australia|sydney|melbourne|brisbane|perth/],\n  ['sg', /singapore/],\n  ['ae', /dubai|abu dhabi|\\buae\\b/],\n  ['jp', /japan|tokyo|osaka/],\n];\n\nfunction countryFor(location) {\n  const s = text(location).toLowerCase();\n  if (!s) return null;\n  for (const [code, re] of COUNTRY_HINTS) if (re.test(s)) return code;\n  if (/worldwide|anywhere|global/.test(s)) return 'remote';\n  if (/remote/.test(s)) return 'remote';\n  return null;\n}\n\nconst out = [];\nconst seen = new Set();\n\nfunction push(row) {\n  if (!row.title || !row.company) return;\n  const fp = fingerprint(row.company, row.title, row.location);\n  if (seen.has(fp)) return;\n  seen.add(fp);\n  out.push({\n    ...row,\n    country: row.country !== undefined ? row.country : countryFor(row.location),\n    fingerprint: fp,\n    description: clean(row.description).slice(0, MAX_DESC),\n    tags: tagsOf(row.tags),\n    posted_at: ts(row.posted_at),\n  });\n}\n\nfor (const item of $input.all()) {\n  const j = item.json || {};\n\n  // Jobicy: { jobs: [...] } with jobTitle / companyName keys\n  if (Array.isArray(j.jobs) && j.jobs[0] && j.jobs[0].jobTitle !== undefined) {\n    for (const r of j.jobs) {\n      push({\n        source: 'jobicy',\n        external_id: text(r.id),\n        title: clean(r.jobTitle),\n        company: clean(r.companyName),\n        location: clean(r.jobGeo) || 'Remote',\n        url: text(r.url),\n        description: r.jobDescription,\n        tags: [].concat(r.jobIndustry || [], r.jobType || [], r.jobLevel ? [r.jobLevel] : []),\n        posted_at: r.pubDate,\n        salary_text: r.annualSalaryMin\n          ? text(r.annualSalaryMin) + '-' + text(r.annualSalaryMax) + ' ' + text(r.annualSalaryCurrency)\n          : '',\n      });\n    }\n    continue;\n  }\n\n  // Remotive: { jobs: [...] }\n  if (Array.isArray(j.jobs)) {\n    for (const r of j.jobs) {\n      push({\n        source: 'remotive',\n        external_id: text(r.id),\n        title: clean(r.title),\n        company: clean(r.company_name),\n        location: clean(r.candidate_required_location) || 'Remote',\n        url: text(r.url),\n        description: r.description,\n        tags: r.tags,\n        posted_at: r.publication_date,\n        salary_text: clean(r.salary),\n      });\n    }\n    continue;\n  }\n\n  // Arbeitnow: { data: [...] }\n  if (Array.isArray(j.data)) {\n    for (const r of j.data) {\n      push({\n        source: 'arbeitnow',\n        external_id: text(r.slug || r.url),\n        title: clean(r.title),\n        company: clean(r.company_name),\n        location: clean(r.location) || (r.remote ? 'Remote' : ''),\n        url: text(r.url),\n        description: r.description,\n        tags: r.tags,\n        posted_at: r.created_at,\n        salary_text: '',\n      });\n    }\n    continue;\n  }\n\n  // RemoteOK: array response, sometimes exploded into one item per job.\n  const arr = Array.isArray(j) ? j : j && j.position && j.id ? [j] : [];\n  for (const r of arr) {\n    if (!r || !r.id || !r.position) continue; // skips the legal notice row\n    push({\n      source: 'remoteok',\n      external_id: text(r.id),\n      title: clean(r.position),\n      company: clean(r.company),\n      location: clean(r.location) || 'Remote',\n      url: text(r.url) || 'https://remoteok.com/remote-jobs/' + text(r.slug),\n      description: r.description,\n      tags: r.tags,\n      posted_at: r.date,\n      salary_text: r.salary_min ? text(r.salary_min) : '',\n    });\n  }\n}\n\nif (!out.length) {\n  return [{ json: { empty: true, note: 'no parseable jobs returned by any source' } }];\n}\nreturn out.map((row) => ({ json: row }));"
       },
       "id": "a0000001-0000-4000-8000-000000000005",
@@ -206,6 +231,11 @@
             "node": "Jobicy",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Jobicy US",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -277,6 +307,17 @@
       ]
     },
     "Jobicy": {
+      "main": [
+        [
+          {
+            "node": "Normalise jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jobicy US": {
       "main": [
         [
           {
