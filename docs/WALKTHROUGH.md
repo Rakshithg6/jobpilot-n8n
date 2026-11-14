@@ -64,7 +64,7 @@ one UPDATE statement writes score + reasons + matched/missing keywords
 ```
 alarm (09:00 daily)
    ↓
-SELECT top 10 WHERE score >= 70 AND status = 'new'
+SELECT top 10 WHERE score >= 70 AND status = 'new' AND digested_at IS NULL
    ↓
 JavaScript builds an HTML table and a plain-text message
    ↓
@@ -72,6 +72,10 @@ save the HTML into the digests table
    ↓
 if TELEGRAM_CHAT_ID is set  →  POST to Telegram
 else                        →  skip, green workflow
+   ↓
+stamp digested_at on those rows (only if the message was actually delivered)
+   ↓
+digest summary
 ```
 
 Two supporting flows: **04** catches failures (error trigger → incidents table → alert) and **05** generates one cover letter on demand (manual trigger → prompt → Groq → stored).
@@ -203,7 +207,7 @@ result   = clamp(0, 100, sum)
 | Node | Type | What it does |
 | --- | --- | --- |
 | `Every day at 09:00` | Schedule Trigger | Asia/Kolkata (from `TZ`) |
-| `Top matches` | Postgres | top 10 with `score >= 70 AND status = 'new'` |
+| `Top matches` | Postgres | top 10 with `score >= 70 AND status = 'new'` and `digested_at IS NULL` |
 | `Build digest` | Code | HTML table + Telegram text + the INSERT for the audit row |
 | `Store digest` | Postgres | saves it, so the digest survives even if Telegram is down |
 | `Telegram configured?` | IF | checks `$env.TELEGRAM_CHAT_ID` |

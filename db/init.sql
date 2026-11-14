@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   matched_keywords JSONB,
   missing_keywords JSONB,
   status          TEXT        NOT NULL DEFAULT 'new',
+  -- set when a job has been delivered in a digest, so it is never sent twice
+  digested_at     TIMESTAMPTZ,
   cover_letter    TEXT,
   posted_at       TIMESTAMPTZ,
   first_seen      TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -36,6 +38,7 @@ CREATE INDEX IF NOT EXISTS jobs_rank_idx     ON jobs (score DESC NULLS LAST, fir
 CREATE INDEX IF NOT EXISTS jobs_country_idx  ON jobs (country) WHERE country IS NOT NULL;
 CREATE INDEX IF NOT EXISTS jobs_unscored_idx ON jobs (first_seen DESC) WHERE score IS NULL;
 CREATE INDEX IF NOT EXISTS jobs_status_idx   ON jobs (status);
+CREATE INDEX IF NOT EXISTS jobs_digest_idx   ON jobs (score DESC) WHERE digested_at IS NULL;
 CREATE INDEX IF NOT EXISTS jobs_title_trgm   ON jobs USING gin (to_tsvector('english', title || ' ' || company));
 
 -- Every digest we render, kept so the pipeline is auditable after the fact.

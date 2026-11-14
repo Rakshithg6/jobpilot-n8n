@@ -18,21 +18,30 @@
       "name": "Every day at 09:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [-620, 0]
+      "position": [
+        -620,
+        0
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, title, company, location, url, score, source, matched_keywords\nFROM jobs\nWHERE status = 'new' AND score >= 70\nORDER BY score DESC, first_seen DESC\nLIMIT 10;",
+        "query": "SELECT id, title, company, location, url, score, source, matched_keywords\nFROM jobs\nWHERE status = 'new'\n  AND score >= 70\n  AND digested_at IS NULL\nORDER BY score DESC, first_seen DESC\nLIMIT 10;",
         "options": {}
       },
       "id": "a0000003-0000-4000-8000-000000000002",
       "name": "Top matches",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [-380, 0],
+      "position": [
+        -380,
+        0
+      ],
       "credentials": {
-        "postgres": { "id": "jobpilot-postgres", "name": "JobPilot Postgres" }
+        "postgres": {
+          "id": "jobpilot-postgres",
+          "name": "JobPilot Postgres"
+        }
       },
       "alwaysOutputData": true
     },
@@ -44,7 +53,10 @@
       "name": "Build digest",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-120, 0]
+      "position": [
+        -120,
+        0
+      ]
     },
     {
       "parameters": {
@@ -56,9 +68,15 @@
       "name": "Store digest",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [140, 0],
+      "position": [
+        140,
+        0
+      ],
       "credentials": {
-        "postgres": { "id": "jobpilot-postgres", "name": "JobPilot Postgres" }
+        "postgres": {
+          "id": "jobpilot-postgres",
+          "name": "JobPilot Postgres"
+        }
       },
       "alwaysOutputData": true
     },
@@ -91,7 +109,10 @@
       "name": "Telegram configured?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [400, 0]
+      "position": [
+        400,
+        0
+      ]
     },
     {
       "parameters": {
@@ -108,7 +129,10 @@
       "name": "Send to Telegram",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [660, -100],
+      "position": [
+        660,
+        -100
+      ],
       "onError": "continueRegularOutput",
       "retryOnFail": true,
       "maxTries": 2,
@@ -122,25 +146,151 @@
       "name": "Digest summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [920, 0]
+      "position": [
+        1180,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Only mark jobs as delivered once Telegram actually accepted the message,\n// otherwise a failed send would silently hide them from tomorrow's digest.\nconst ids = $('Top matches').all().map((i) => i.json.id).filter((v) => v !== undefined);\nconst configured = Boolean($env.TELEGRAM_BOT_TOKEN && $env.TELEGRAM_CHAT_ID);\nconst delivered = $json.ok === true;\n\nconst shouldMark = configured && delivered && ids.length > 0;\n\nreturn [\n  {\n    json: {\n      sql: shouldMark\n        ? 'UPDATE jobs SET digested_at = now() WHERE id IN (' + ids.join(',') + ')'\n        : 'SELECT 1 AS skipped',\n      marked: shouldMark ? ids.length : 0,\n      reason: !configured ? 'telegram not configured' : !delivered ? 'send failed - jobs kept for next run' : 'delivered',\n    },\n  },\n];"
+      },
+      "id": "a0000003-0000-4000-8000-000000000008",
+      "name": "Mark as digested",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.sql }}",
+        "options": {}
+      },
+      "id": "a0000003-0000-4000-8000-000000000009",
+      "name": "Apply digested",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        920,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "jobpilot-postgres",
+          "name": "JobPilot Postgres"
+        }
+      },
+      "alwaysOutputData": true
     }
   ],
   "connections": {
-    "Every day at 09:00": { "main": [[{ "node": "Top matches", "type": "main", "index": 0 }]] },
-    "Top matches": { "main": [[{ "node": "Build digest", "type": "main", "index": 0 }]] },
-    "Build digest": { "main": [[{ "node": "Store digest", "type": "main", "index": 0 }]] },
-    "Store digest": { "main": [[{ "node": "Telegram configured?", "type": "main", "index": 0 }]] },
-    "Telegram configured?": {
+    "Every day at 09:00": {
       "main": [
-        [{ "node": "Send to Telegram", "type": "main", "index": 0 }],
-        [{ "node": "Digest summary", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Top matches",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Send to Telegram": { "main": [[{ "node": "Digest summary", "type": "main", "index": 0 }]] }
+    "Top matches": {
+      "main": [
+        [
+          {
+            "node": "Build digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build digest": {
+      "main": [
+        [
+          {
+            "node": "Store digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store digest": {
+      "main": [
+        [
+          {
+            "node": "Telegram configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram configured?": {
+      "main": [
+        [
+          {
+            "node": "Send to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark as digested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Telegram": {
+      "main": [
+        [
+          {
+            "node": "Mark as digested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as digested": {
+      "main": [
+        [
+          {
+            "node": "Apply digested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply digested": {
+      "main": [
+        [
+          {
+            "node": "Digest summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "active": false,
   "pinData": {},
   "tags": [],
-  "meta": { "templateCredsSetupCompleted": false }
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
 }
