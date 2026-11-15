@@ -102,6 +102,12 @@ Workflow 07 works on links, not on scraping: it extracts `linkedin.com/jobs/view
 
 **After re-importing 07, run `scripts\fix-imap-credential.ps1`.** The file targets a fresh install and references credential id `jobpilot-imap`; a credential you created in the UI has a different id, and publishing fails with *"Credential JobPilot IMAP no longer exists"*. The script re-points both the live workflow and its version snapshot at the real credential.
 
+## Running 24/7
+
+A laptop that sleeps stops the pipeline: no inbox polling, no 09:00 digest, no Telegram message. To keep it alive, move it to a small server — see [`deploy/ORACLE-CLOUD.md`](deploy/ORACLE-CLOUD.md) for a free Oracle Cloud walkthrough (SSH tunnel, database migration, backups). `scripts/export-db.ps1` produces the dump that migrates your jobs and workflows.
+
+Run **one** instance at a time. Two copies read the same Gmail inbox and post to the same Telegram chat, so you would receive duplicates.
+
 **One honest limitation:** because there is no description, a LinkedIn row maxes out lower than an Adzuna row with a full snippet. That's expected. If you want depth from those three sites, open the link — the pipeline's job is to make sure you see it.
 
 ---

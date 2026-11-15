@@ -4,3 +4,8 @@ exports/*
 *.log
 node_modules/
 .DS_Store
+
+# Database dumps contain your real jobs, digests and encrypted credentials.
+deploy/*.sql
+backups/
+*.dump
