@@ -104,7 +104,12 @@ Workflow 07 works on links, not on scraping: it extracts `linkedin.com/jobs/view
 
 ## Running 24/7
 
-A laptop that sleeps stops the pipeline: no inbox polling, no 09:00 digest, no Telegram message. To keep it alive, move it to a small server — see [`deploy/ORACLE-CLOUD.md`](deploy/ORACLE-CLOUD.md) for a free Oracle Cloud walkthrough (SSH tunnel, database migration, backups). `scripts/export-db.ps1` produces the dump that migrates your jobs and workflows.
+A laptop that sleeps stops the pipeline: no inbox polling, no 09:00 digest, no Telegram message. To keep it alive, move it to a small server:
+
+- [`deploy/GCP-FREE-TIER.md`](deploy/GCP-FREE-TIER.md) — Google Cloud, using the free `e2-micro` (works with a $300 trial credit)
+- [`deploy/ORACLE-CLOUD.md`](deploy/ORACLE-CLOUD.md) — Oracle Always Free Arm VM
+
+`scripts/export-db.ps1` produces the dump that migrates your jobs and workflows.
 
 Run **one** instance at a time. Two copies read the same Gmail inbox and post to the same Telegram chat, so you would receive duplicates.
 
