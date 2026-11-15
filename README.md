@@ -77,7 +77,7 @@ Optional integrations are env-gated — leave the keys blank and the matching br
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | 03 digest + 04 error alerts | free |
 | `GROQ_API_KEY` | 05 AI cover letter | free tier |
-| `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | 06 Adzuna search — 9 European countries by default (`de,at,ch,nl,fr,gb,pl,es,it`); `ADZUNA_COUNTRIES` / `ADZUNA_QUERIES` control the rest | free |
+| `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | 06 Adzuna search — Europe plus the US when configured; `ADZUNA_COUNTRIES` / `ADZUNA_QUERIES` control the rest | free |
 | IMAP credential (in n8n) | 07 job-alert emails from LinkedIn/Indeed/Naukri | free |
 
 ---
@@ -117,7 +117,7 @@ Run **one** instance at a time. Two copies read the same Gmail inbox and post to
 
 ---
 
-## Region coverage: Europe, Germany, remote, India
+## Region coverage: Europe, Germany, remote, and the US
 
 Every row gets a `country` tag derived from its location text (`Berlin, Germany` → `de`, `London, UK` → `gb`, `Remote` → `remote`). That means "show me only German roles" is one `WHERE`, not a manual scan.
 
@@ -140,12 +140,12 @@ Adzuna adds depth on top of that, because it is the only source here that can be
 
 ```powershell
 # .env
-ADZUNA_COUNTRIES=de,at,ch,nl,fr,gb,pl,es,it
+ADZUNA_COUNTRIES=de,at,ch,nl,fr,gb,pl,es,it,us
 ADZUNA_QUERIES=software engineer
 ADZUNA_MAX_REQUESTS=12
 ```
 
-`06` builds one request per country × term, applies `category=it-jobs`, and caps the total at `ADZUNA_MAX_REQUESTS` so the free quota survives. Two runs a day × 9 countries ≈ 540 calls/month.
+`06` builds one request per country × term, applies `category=it-jobs`, and caps the total at `ADZUNA_MAX_REQUESTS` so the free quota survives. Add or remove countries to match your target market.
 
 Useful queries once the data is in:
 
@@ -257,7 +257,7 @@ workflows/
   03-daily-digest.json    4 Europe + 3 US + 3 Remote top 10 → HTML → DB → Telegram (optional)
   04-error-handler.json   error trigger → incidents table → alert
   05-ai-cover-letter.json manual → grounded prompt → Groq → store
-  06-ingest-adzuna.json   Adzuna search (country=in), env-gated, no key = green skip
+  06-ingest-adzuna.json   Adzuna country-targeted search, env-gated, no key = green skip
   07-ingest-job-alerts.json IMAP trigger → LinkedIn/Indeed/Naukri alert emails
 scripts/
   start.ps1               cold boot + readiness wait
@@ -278,6 +278,8 @@ eval/
 - No resume PDF is uploaded anywhere. The `FACTS` block is the only personal context sent to a model, and it is yours to edit.
 - Only official APIs and public job-board feeds are used. Nothing here scrapes a site whose Terms of Service forbid it — that matters, because the alternative is an account ban and a story you can't tell an interviewer.
 - Execution data is local. `N8N_DIAGNOSTICS_ENABLED=false`.
+- `.env`, database exports, backups, and personal resume files are intentionally excluded from Git.
+- Before publishing a fork, check `git status --ignored` and never commit real API keys, bot tokens, app passwords, or `N8N_ENCRYPTION_KEY`.
 
 ## Known limitations
 

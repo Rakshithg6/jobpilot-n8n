@@ -5,6 +5,15 @@ exports/*
 node_modules/
 .DS_Store
 
+# Editor and local runtime files.
+.idea/
+.vscode/
+*.tmp
+*.bak
+
+# Personal application material stays local; do not publish it.
+resume/
+
 # Database dumps contain your real jobs, digests and encrypted credentials.
 deploy/*.sql
 backups/
