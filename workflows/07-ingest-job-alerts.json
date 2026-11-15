@@ -41,7 +41,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// One INSERT per 75 rows, with ON CONFLICT DO NOTHING so re-running the\n// workflow is safe (idempotency lives in the database, not in the code).\nconst items = $input.all().map((i) => i.json).filter((r) => r && r.fingerprint);\nif (!items.length) return [{ json: { rows: 0, sql: 'SELECT 1;' } }];\n\nconst esc = (v) =>\n  v === null || v === undefined || v === ''\n    ? 'NULL'\n    : \"'\" + String(v).replace(/\\u0000/g, '').replace(/'/g, \"''\") + \"'\";\n\nconst jsonb = (v) =>\n  \"'\" + JSON.stringify(Array.isArray(v) ? v : []).replace(/'/g, \"''\") + \"'::jsonb\";\n\nconst stamp = (v) => {\n  if (!v) return 'NULL';\n  const d = new Date(v);\n  return isNaN(d.getTime()) ? 'NULL' : \"'\" + d.toISOString() + \"'::timestamptz\";\n};\n\nconst CHUNK = 75;\nconst chunks = [];\nfor (let i = 0; i < items.length; i += CHUNK) chunks.push(items.slice(i, i + CHUNK));\n\nreturn chunks.map((rows, idx) => ({\n  json: {\n    chunk: idx + 1,\n    rows: rows.length,\n    sql:\n      'INSERT INTO jobs (source, external_id, title, company, location, country, url, description, salary_text, tags, fingerprint, posted_at) VALUES ' +\n      rows\n        .map(\n          (r) =>\n            '(' +\n            [\n              esc(r.source),\n              esc(r.external_id),\n              esc(r.title),\n              esc(r.company),\n              esc(r.location),\n              // undefined for rows that carry no location (alert emails) -> NULL\n              esc(r.country),\n              esc(r.url),\n              esc(r.description),\n              esc(r.salary_text),\n              jsonb(r.tags),\n              esc(r.fingerprint),\n              stamp(r.posted_at),\n            ].join(',') +\n            ')'\n        )\n        .join(',') +\n      ' ON CONFLICT (fingerprint) DO NOTHING RETURNING id;',\n  },\n}));"
+        "jsCode": "// One INSERT per 75 rows, with ON CONFLICT DO NOTHING so re-running the\n// workflow is safe (idempotency lives in the database, not in the code).\nconst items = $input.all().map((i) => i.json).filter((r) => r && r.fingerprint);\nif (!items.length) return [{ json: { rows: 0, sql: 'SELECT 1;' } }];\n\nconst esc = (v) =>\n  v === null || v === undefined || v === ''\n    ? 'NULL'\n    : \"'\" + String(v).replace(/\\u0000/g, '').replace(/'/g, \"''\") + \"'\";\n\nconst jsonb = (v) =>\n  \"'\" + JSON.stringify(Array.isArray(v) ? v : []).replace(/'/g, \"''\") + \"'::jsonb\";\n\nconst stamp = (v) => {\n  if (!v) return 'NULL';\n  const d = new Date(v);\n  return isNaN(d.getTime()) ? 'NULL' : \"'\" + d.toISOString() + \"'::timestamptz\";\n};\n\nconst CHUNK = 75;\nconst chunks = [];\nfor (let i = 0; i < items.length; i += CHUNK) chunks.push(items.slice(i, i + CHUNK));\n\nreturn chunks.map((rows, idx) => ({\n  json: {\n    chunk: idx + 1,\n    rows: rows.length,\n    sql:\n      'INSERT INTO jobs (source, external_id, title, company, location, country, url, description, salary_text, tags, fingerprint, posted_at) VALUES ' +\n      rows\n        .map(\n          (r) =>\n            '(' +\n            [\n              esc(r.source),\n              esc(r.external_id),\n              esc(r.title),\n              esc(r.company),\n              esc(r.location),\n              // undefined for rows that carry no location (alert emails) -> NULL\n              esc(r.country),\n              esc(r.url),\n              esc(r.description),\n              esc(r.salary_text),\n              jsonb(r.tags),\n              esc(r.fingerprint),\n              stamp(r.posted_at),\n            ].join(',') +\n            ')'\n        )\n        .join(',') +\n      ' ON CONFLICT (fingerprint) DO NOTHING RETURNING id, url;',\n  },\n}));"
       },
       "id": "a0000007-0000-4000-8000-000000000003",
       "name": "Build SQL chunks",
@@ -86,6 +86,86 @@
         380,
         0
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Separate, immediate message: a job-alert email just arrived, apply here.\n// Only rows really inserted in this run are announced - duplicates stay quiet.\nconst parsed = $('Parse alert emails').all().map((i) => i.json).filter((r) => r && r.fingerprint);\n\nconst inserted = new Set();\nfor (const i of $input.all()) {\n  const j = i.json || {};\n  if (j && j.url) inserted.add(String(j.url));\n}\n\nconst fresh = parsed.filter((r) => inserted.has(String(r.url)));\nif (!fresh.length) return [{ json: { count: 0, text: '' } }];\n\nconst label = { linkedin: 'LinkedIn', indeed: 'Indeed', naukri: 'Naukri' };\nconst sources = [...new Set(fresh.map((j) => label[j.source] || j.source))].join(', ');\n\nconst lines = fresh.map((j, i) => {\n  const src = label[j.source] || j.source || 'email';\n  return (\n    (i + 1) + '. ' + j.title +\n    '\\n   ' + src + ' · ' + j.company +\n    '\\n   ' + (j.url || '')\n  );\n});\n\nconst text =\n  'New job alert from your Gmail - apply now\\n' +\n  fresh.length + ' new job(s) from ' + sources + '\\n\\n' +\n  lines.join('\\n\\n') +\n  '\\n\\nOpen the link and apply while the posting is fresh. ' +\n  'It is also queued for scoring and the next 09:00 digest.';\n\nreturn [{ json: { count: fresh.length, text } }];"
+      },
+      "id": "a0000007-0000-4000-8000-000000000006",
+      "name": "Build apply alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        120,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-has-new",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "id": "cond-telegram",
+              "leftValue": "={{ $env.TELEGRAM_CHAT_ID }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a0000007-0000-4000-8000-000000000007",
+      "name": "Anything new?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        340,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: $('Build apply alert').first().json.text.slice(0, 3800), disable_web_page_preview: false }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "a0000007-0000-4000-8000-000000000008",
+      "name": "Send apply alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        220
+      ],
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000
     }
   ],
   "connections": {
@@ -129,8 +209,36 @@
             "node": "Run summary",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Build apply alert",
+            "type": "main",
+            "index": 0
           }
         ]
+      ]
+    },
+    "Build apply alert": {
+      "main": [
+        [
+          {
+            "node": "Anything new?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything new?": {
+      "main": [
+        [
+          {
+            "node": "Send apply alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },

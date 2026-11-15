@@ -98,6 +98,10 @@ The pattern is: **if you can legally get the data, automate it; if you can't, au
 
 Workflow 07 works on links, not on scraping: it extracts `linkedin.com/jobs/view/<id>`, `indeed.com/viewjob?jk=<id>` and `naukri.com/job-listings-…-<id>`, takes the title and company from the anchor text, and fingerprints on `source + job id`. Duplicate alerts collapse. There is no job description in an alert email, so those rows score on title alone — they are a safety net, not your primary feed.
 
+**Two messages, by design.** 07 sends its own short Telegram message the moment an alert lands — "New job alert from your Gmail - apply now", with the label, company and the direct link for every job newly inserted by that run. Only rows that were actually inserted are announced, so a re-delivered alert never repeats a link. The 09:00 digest (03) is separate: it scores everything, mixes sources, and ranks by region.
+
+**After re-importing 07, run `scripts\fix-imap-credential.ps1`.** The file targets a fresh install and references credential id `jobpilot-imap`; a credential you created in the UI has a different id, and publishing fails with *"Credential JobPilot IMAP no longer exists"*. The script re-points both the live workflow and its version snapshot at the real credential.
+
 **One honest limitation:** because there is no description, a LinkedIn row maxes out lower than an Adzuna row with a full snippet. That's expected. If you want depth from those three sites, open the link — the pipeline's job is to make sure you see it.
 
 ---
