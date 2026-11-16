@@ -210,6 +210,7 @@ Numbers from the first real run, not estimates:
 | Adzuna multi-country builder | 10 countries × 1 term capped to 12 requests; failed country skipped, `category=it-jobs` applied |
 | Adzuna live pull (2026-11-14) | 500 results across `de,at,ch,nl,fr,gb,pl,es,it,us`; 489 Adzuna rows after fingerprint dedupe |
 | Regional digest | Guarantees 8 Europe + 6 United States + 6 Remote/Global slots (20 total), then backfills thin buckets; NULL-country rows are handled safely |
+| Visa signal (`visa_signal`) | Generated column over title + description: `sponsor` / `relocation` / `no_sponsor` / `unknown`. Ads that explicitly refuse sponsorship are dropped, sponsored ones rank first, and every digest line is badged ✅ / 🌍 / ❓ |
 | Adzuna normaliser (documented response shape) | backend role scored 79, commission-only sales role scored 0 |
 
 That 9% is the point: the boards are ~90% noise, and the ranking is what turns them into ten applications a day.
@@ -249,7 +250,7 @@ db/init.sql               schema, indexes, funnel view, constraints
 workflows/
   01-ingest-jobs.json     schedule → 4 boards → normalise → dedupe → upsert
   02-score-jobs.json      unscored queue → deterministic score → gap report
-  03-daily-digest.json    8 Europe + 6 US + 6 Remote top 20 → HTML → DB → Telegram (optional)
+  03-daily-digest.json    8 Europe + 6 US + 6 Remote top 20, sponsorship-aware → HTML → DB → Telegram (optional)
   04-error-handler.json   error trigger → incidents table → alert
   05-ai-cover-letter.json manual → grounded prompt → Groq → store
   06-ingest-adzuna.json   Adzuna country-targeted search, env-gated, no key = green skip

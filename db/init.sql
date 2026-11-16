@@ -13,6 +13,23 @@ CREATE TABLE IF NOT EXISTS jobs (
   country         TEXT,
   url             TEXT,
   description     TEXT,
+  -- What the ad itself says about immigration: 'sponsor', 'relocation',
+  -- 'no_sponsor' or 'unknown' (the common case). Generated, so it is always
+  -- in sync with the text and needs no backfill - see add-visa-signal.sql.
+  visa_signal     TEXT GENERATED ALWAYS AS (
+    CASE
+      WHEN lower(coalesce(title, '') || ' ' || coalesce(description, ''))
+        ~ 'no (visa )?sponsorship|unable to sponsor|not able to sponsor|cannot sponsor|can not sponsor|will not sponsor|does not sponsor|do not sponsor|not sponsor|without sponsorship|sponsorship is not available|no c2c|must (be|already) (authorized|eligible) to work|right to work in|must have the right to work|authorized to work in'
+        THEN 'no_sponsor'
+      WHEN lower(coalesce(title, '') || ' ' || coalesce(description, ''))
+        ~ 'visa sponsorship|sponsorship available|sponsorship provided|sponsorship offered|visa sponsored|we (do )?sponsor|willing to sponsor|able to sponsor|can sponsor|blue card|skilled worker visa|work permit'
+        THEN 'sponsor'
+      WHEN lower(coalesce(title, '') || ' ' || coalesce(description, ''))
+        ~ 'relocation (support|package|assistance|bonus|help|allowance)|we support relocation|relocation offered|relocation is (available|provided)'
+        THEN 'relocation'
+      ELSE 'unknown'
+    END
+  ) STORED,
   salary_text     TEXT,
   tags            JSONB       NOT NULL DEFAULT '[]'::jsonb,
   -- sha256(company|title|location), normalised. This is the dedupe key:
