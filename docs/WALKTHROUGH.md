@@ -125,6 +125,7 @@ Everything lives in the same Postgres database that n8n uses for itself (databas
 | `country` | coarse region tag: `de`, `gb`, `nl`, `us`, `in`, `remote`, … |
 | `visa_signal` | **generated** from title + description: `sponsor`, `relocation`, `no_sponsor`, `unknown` |
 | `seniority` | **generated** from the title: `intern`, `junior`, `mid`, `senior` |
+| `work_type` | **generated** from title + description: `contract`, `open_source`, `standard` |
 | **`fingerprint`** | `sha256(company + title + location)`, normalised — **UNIQUE** |
 | `score` | 0–100, NULL until workflow 02 runs |
 | `score_reasons` | JSON array like `["skills 40/40 (api, sql, docker)", …]` |
@@ -211,7 +212,7 @@ result   = clamp(0, 100, sum)
 | Node | Type | What it does |
 | --- | --- | --- |
 | `Every day at 09:00` | Schedule Trigger | Asia/Kolkata (from `TZ`) |
-| `Top matches` | Postgres | 20 slots: 6 reserved for intern/junior/graduate (`visa_signal <> 'no_sponsor'`, bar 40 for them, 55 otherwise), then 6 Europe + 4 US + 4 Remote, then backfill; sponsorship/relocation rows rank before plain score |
+| `Top matches` | Postgres | 20 slots: 6 held for junior/graduate, `contract` and `open_source` rows (bar 40 junior, 50 contract/OSS), interns excluded, then 6 Europe + 4 US + 4 Remote, then backfill; sponsorship/relocation rows rank before plain score |
 | `Build digest` | Code | HTML table + Telegram text + the INSERT for the audit row |
 | `Store digest` | Postgres | saves it, so the digest survives even if Telegram is down |
 | `Telegram configured?` | IF | checks `$env.TELEGRAM_CHAT_ID` |
@@ -223,7 +224,7 @@ Order matters: **store first, send second.** If the messenger fails you still ha
 
 **Visa sponsorship is a data problem, not a filter.** Adzuna publishes no sponsorship flag, and only about 1% of postings mention immigration at all — so "sponsored roles only" would return an empty list most days. Instead `jobs.visa_signal` is a **generated column** (`db/add-visa-signal.sql`): Postgres reads the ad text and stores `sponsor` (✅), `relocation` (🌍), `unknown` (❓, the normal case) or `no_sponsor` (⛔). The digest drops the ⛔ rows, ranks ✅/🌍 first and badges every line, and because the column is generated it can never drift out of sync with the job text.
 
-**Fresher roles get their own quota.** A senior ad mentions more keywords, so on raw score alone seniors would take all twenty slots. `jobs.seniority` (also a generated column, `db/add-seniority.sql`) classifies the title as `intern` / `junior` / `mid` / `senior`; six slots are reserved for intern/junior/graduate roles, their score bar is 40 instead of 55, and every such line carries 🌱 so you can see at a glance that it targets someone starting out.
+**Fresher, contract and open-source roles get their own quota.** A senior full-time ad mentions more keywords, so on raw score alone those ads would take all twenty slots. Two more generated columns classify the row — `seniority` (`db/add-seniority.sql`) and `work_type` (`db/add-work-type.sql`, `contract` / `open_source` / `standard`) — and six slots are held for junior/graduate, contract and open-source roles. Internships are excluded outright. The bars follow the same logic as the visa field: 40 points for a fresher ad, 50 for contract / open-source, 55 otherwise. Every such line carries its own badge — 🌱 fresher, 📄 contract, 🐙 open source — so you can read the digest at a glance.
 
 ---
 

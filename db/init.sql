@@ -43,6 +43,20 @@ CREATE TABLE IF NOT EXISTS jobs (
       ELSE 'mid'
     END
   ) STORED,
+  -- Engagement shape: 'contract', 'open_source' or 'standard'. Also generated;
+  -- the digest reserves slots for contract and open-source roles.
+  work_type       TEXT GENERATED ALWAYS AS (
+    CASE
+      WHEN lower(coalesce(title, '')) ~ 'open.?source'
+        OR lower(coalesce(title, '') || ' ' || coalesce(description, ''))
+           ~ 'open.?source (project|community|software|ecosystem)|we are (an )?open.?source|our open.?source|open.?source (first|maintainer|contributors?)|contribut\w* to open.?source'
+        THEN 'open_source'
+      WHEN lower(coalesce(title, '')) ~ '\mcontract\M|contractor|freelance|fixed.?term'
+        OR lower(coalesce(description, '')) ~ 'contract (role|position|basis)|fixed.?term contract|freelance (role|contract)'
+        THEN 'contract'
+      ELSE 'standard'
+    END
+  ) STORED,
   salary_text     TEXT,
   tags            JSONB       NOT NULL DEFAULT '[]'::jsonb,
   -- sha256(company|title|location), normalised. This is the dedupe key:

@@ -210,7 +210,7 @@ Numbers from the first real run, not estimates:
 | Adzuna multi-country builder | 10 countries × 1 term capped to 12 requests; failed country skipped, `category=it-jobs` applied |
 | Adzuna live pull (2026-11-14) | 500 results across `de,at,ch,nl,fr,gb,pl,es,it,us`; 489 Adzuna rows after fingerprint dedupe |
 | Regional digest | 20 slots: 6 held for intern/junior roles, then 6 Europe + 4 United States + 4 Remote/Global, then backfill from the best remaining; NULL-country rows are handled safely |
-| Fresher slots (`seniority`) | Generated column (intern / junior / mid / senior) from the title. 6 of the 20 digest slots are reserved for intern/junior/graduate roles, which also get a lower score bar (40 vs 55) because their ads list fewer keywords |
+| Fresher / contract / OSS slots | `seniority` (intern / junior / mid / senior) and `work_type` (contract / open_source / standard) are both generated from the text. 6 of the 20 slots are held for junior/graduate, contract and open-source roles; internships are excluded. Score bars: 40 junior, 50 contract/OSS, 55 otherwise |
 | Visa signal (`visa_signal`) | Generated column over title + description: `sponsor` / `relocation` / `no_sponsor` / `unknown`. Ads that explicitly refuse sponsorship are dropped, sponsored ones rank first, and every digest line is badged ✅ / 🌍 / ❓ |
 | Adzuna normaliser (documented response shape) | backend role scored 79, commission-only sales role scored 0 |
 
@@ -251,7 +251,7 @@ db/init.sql               schema, indexes, funnel view, constraints
 workflows/
   01-ingest-jobs.json     schedule → 4 boards → normalise → dedupe → upsert
   02-score-jobs.json      unscored queue → deterministic score → gap report
-  03-daily-digest.json    20 slots: 6 fresher + 6 EU / 4 US / 4 remote, backfilled, sponsorship-aware → HTML → DB → Telegram
+  03-daily-digest.json    20 slots: 6 held for fresher/contract/OSS + 6 EU / 4 US / 4 remote, backfilled, sponsorship-aware → HTML → DB → Telegram
   04-error-handler.json   error trigger → incidents table → alert
   05-ai-cover-letter.json manual → grounded prompt → Groq → store
   06-ingest-adzuna.json   Adzuna country-targeted search, env-gated, no key = green skip
