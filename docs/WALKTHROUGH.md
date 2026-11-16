@@ -6,7 +6,7 @@ Written for someone who has not used n8n before. Read top to bottom; everything 
 
 ## 1. The one-paragraph version
 
-Four job boards publish jobs as JSON over HTTP. A scheduled n8n workflow downloads them, converts four different shapes into one shape, throws away anything it has already seen, and writes the rest into PostgreSQL. A second workflow scores every new row 0–100 against a rubric you control. A third workflow emails/texts you the top 10 each morning. Nothing here is magic: it is a cron job, four HTTP calls, some JavaScript, and SQL.
+Four job boards publish jobs as JSON over HTTP. A scheduled n8n workflow downloads them, converts four different shapes into one shape, throws away anything it has already seen, and writes the rest into PostgreSQL. A second workflow scores every new row 0–100 against a rubric you control. A third workflow emails/texts you the top 20 each morning. Nothing here is magic: it is a cron job, four HTTP calls, some JavaScript, and SQL.
 
 ---
 
@@ -64,7 +64,7 @@ one UPDATE statement writes score + reasons + matched/missing keywords
 ```
 alarm (09:00 daily)
    ↓
-SELECT top 10 WHERE score >= 55 AND status = 'new' AND digested_at IS NULL
+SELECT top 20 WHERE score >= 55 AND status = 'new' AND digested_at IS NULL
    -- Europe/EEA rows sort first, then by score, so German roles are not
    -- crowded out by remote or US postings.
    ↓
@@ -209,11 +209,12 @@ result   = clamp(0, 100, sum)
 | Node | Type | What it does |
 | --- | --- | --- |
 | `Every day at 09:00` | Schedule Trigger | Asia/Kolkata (from `TZ`) |
-| `Top matches` | Postgres | top 10 with `score >= 70 AND status = 'new'` and `digested_at IS NULL` |
+| `Top matches` | Postgres | top 20 (8 Europe / 6 US / 6 Remote) with `score >= 55 AND status = 'new'` and `digested_at IS NULL` |
 | `Build digest` | Code | HTML table + Telegram text + the INSERT for the audit row |
 | `Store digest` | Postgres | saves it, so the digest survives even if Telegram is down |
 | `Telegram configured?` | IF | checks `$env.TELEGRAM_CHAT_ID` |
-| `Send to Telegram` | HTTP Request | `POST api.telegram.org/bot<token>/sendMessage` |
+| `Split messages` | Code | one item per message, so a 20-job digest is never cut off by Telegram's 4096-character cap |
+| `Send to Telegram` | HTTP Request | `POST api.telegram.org/bot<token>/sendMessage`, once per item |
 | `Digest summary` | Code | one-line result |
 
 Order matters: **store first, send second.** If the messenger fails you still have the digest.
@@ -309,7 +310,7 @@ No key? Workflow 06 takes the false branch and reports "skipped" — green, not 
    - Click a node, look at **Output** — that is the actual JSON flowing through.
 6. execute **01** again → `new_rows: 0`, `duplicates_skipped: ~450`. **This is the proof.**
 7. open **02 · Score Jobs** → execute three or four times until `scored: 0`.
-8. open **03 · Daily Digest** → execute → `matches: 10`.
+8. open **03 · Daily Digest** → execute → `matches: 20`.
 9. `./scripts/export-scores.ps1` → `node eval/evaluate.mjs` after labelling.
 
 Between steps, this query is your ground truth:
@@ -352,4 +353,4 @@ What it did **not** prove: your n8n credential wiring and your click-through. Th
 
 ## 14. The three-sentence explanation
 
-> I built a self-hosted n8n pipeline that pulls job postings from four public APIs, normalises them into one Postgres schema, and deduplicates with a unique SHA-256 fingerprint so re-running is idempotent. A deterministic scoring policy ranks each role against my profile and reports which skills the market keeps asking for that my CV omits. A daily digest surfaces the top ten, and an optional LLM writes a cover letter that is constrained to a fixed facts block.
+> I built a self-hosted n8n pipeline that pulls job postings from four public APIs, normalises them into one Postgres schema, and deduplicates with a unique SHA-256 fingerprint so re-running is idempotent. A deterministic scoring policy ranks each role against my profile and reports which skills the market keeps asking for that my CV omits. A daily digest surfaces the top twenty, and an optional LLM writes a cover letter that is constrained to a fixed facts block.
