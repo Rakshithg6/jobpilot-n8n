@@ -30,6 +30,19 @@ CREATE TABLE IF NOT EXISTS jobs (
       ELSE 'unknown'
     END
   ) STORED,
+  -- Seniority from the title: 'intern', 'junior', 'mid' or 'senior'. Generated
+  -- for the same reason as visa_signal - the digest reserves slots for it.
+  seniority       TEXT GENERATED ALWAYS AS (
+    CASE
+      WHEN lower(coalesce(title, ''))
+        ~ '\m(intern|internship|trainee|working student|werkstudent|apprentice)\M' THEN 'intern'
+      WHEN lower(coalesce(title, ''))
+        ~ '\m(junior|jr|entry level|entry-level|graduate|grad|fresher)\M' THEN 'junior'
+      WHEN lower(coalesce(title, ''))
+        ~ '\m(senior|sr|lead|staff|principal|architect|head|manager|director|vp|chief)\M' THEN 'senior'
+      ELSE 'mid'
+    END
+  ) STORED,
   salary_text     TEXT,
   tags            JSONB       NOT NULL DEFAULT '[]'::jsonb,
   -- sha256(company|title|location), normalised. This is the dedupe key:

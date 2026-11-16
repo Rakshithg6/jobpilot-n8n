@@ -64,7 +64,7 @@ one UPDATE statement writes score + reasons + matched/missing keywords
 ```
 alarm (09:00 daily)
    ↓
-SELECT top 20 WHERE score >= 55 AND status = 'new' AND digested_at IS NULL
+SELECT top 20 WHERE score >= 55 (or 40 for fresher titles) AND status = 'new' AND digested_at IS NULL
    -- Europe/EEA rows sort first, then by score, so German roles are not
    -- crowded out by remote or US postings.
    ↓
@@ -124,6 +124,7 @@ Everything lives in the same Postgres database that n8n uses for itself (databas
 | `title`, `company`, `location`, `url`, `description`, `salary_text`, `tags` | normalised fields |
 | `country` | coarse region tag: `de`, `gb`, `nl`, `us`, `in`, `remote`, … |
 | `visa_signal` | **generated** from title + description: `sponsor`, `relocation`, `no_sponsor`, `unknown` |
+| `seniority` | **generated** from the title: `intern`, `junior`, `mid`, `senior` |
 | **`fingerprint`** | `sha256(company + title + location)`, normalised — **UNIQUE** |
 | `score` | 0–100, NULL until workflow 02 runs |
 | `score_reasons` | JSON array like `["skills 40/40 (api, sql, docker)", …]` |
@@ -210,7 +211,7 @@ result   = clamp(0, 100, sum)
 | Node | Type | What it does |
 | --- | --- | --- |
 | `Every day at 09:00` | Schedule Trigger | Asia/Kolkata (from `TZ`) |
-| `Top matches` | Postgres | top 20 (8 Europe / 6 US / 6 Remote) with `score >= 55 AND status = 'new'` and `digested_at IS NULL`, skipping `visa_signal = 'no_sponsor'`; sponsorship/relocation rows rank before plain score |
+| `Top matches` | Postgres | 20 slots: 6 reserved for intern/junior/graduate (`visa_signal <> 'no_sponsor'`, bar 40 for them, 55 otherwise), then 6 Europe + 4 US + 4 Remote, then backfill; sponsorship/relocation rows rank before plain score |
 | `Build digest` | Code | HTML table + Telegram text + the INSERT for the audit row |
 | `Store digest` | Postgres | saves it, so the digest survives even if Telegram is down |
 | `Telegram configured?` | IF | checks `$env.TELEGRAM_CHAT_ID` |
@@ -221,6 +222,8 @@ result   = clamp(0, 100, sum)
 Order matters: **store first, send second.** If the messenger fails you still have the digest.
 
 **Visa sponsorship is a data problem, not a filter.** Adzuna publishes no sponsorship flag, and only about 1% of postings mention immigration at all — so "sponsored roles only" would return an empty list most days. Instead `jobs.visa_signal` is a **generated column** (`db/add-visa-signal.sql`): Postgres reads the ad text and stores `sponsor` (✅), `relocation` (🌍), `unknown` (❓, the normal case) or `no_sponsor` (⛔). The digest drops the ⛔ rows, ranks ✅/🌍 first and badges every line, and because the column is generated it can never drift out of sync with the job text.
+
+**Fresher roles get their own quota.** A senior ad mentions more keywords, so on raw score alone seniors would take all twenty slots. `jobs.seniority` (also a generated column, `db/add-seniority.sql`) classifies the title as `intern` / `junior` / `mid` / `senior`; six slots are reserved for intern/junior/graduate roles, their score bar is 40 instead of 55, and every such line carries 🌱 so you can see at a glance that it targets someone starting out.
 
 ---
 
